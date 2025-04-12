@@ -131,424 +131,437 @@ public:
 	typename std::vector<Point2D>::const_iterator end() const { return points.end(); }
 };
 
-class PIDController {
-    public:
-        // Constructor
-        PIDController(
-            double pos_p = 1.0, double pos_i = 0.0, double pos_d = 0.0,  // Position PID gains
-            double ang_p = 1.0, double ang_i = 0.0, double ang_d = 0.0,  // Angular PID gains
-            double max_linear_vel = 0.3,                                 // Max linear velocity
-            double max_angular_vel = 0.3,                                // Max angular velocity
-            double position_tolerance = 0.3,                             // Position tolerance
-            double angle_tolerance = 0.1                                 // Angle tolerance
-        )
-            : pos_p_(pos_p), pos_i_(pos_i), pos_d_(pos_d),
-              ang_p_(ang_p), ang_i_(ang_i), ang_d_(ang_d),
-              max_linear_vel_(max_linear_vel),
-              max_angular_vel_(max_angular_vel),
-              pos_tol_(position_tolerance),
-              ang_tol_(angle_tolerance),
-              current_waypoint_idx_(0),
-              goal_reached_(true),
-              prev_pos_error_(0.0),
-              prev_ang_error_(0.0),
-              pos_error_integral_(0.0),
-              ang_error_integral_(0.0),
-              dt_(0.01),  // Time step, adjust as needed
-              cmd_linear_(0.0),
-              cmd_angular_(0.0),
-              current_pose_()  // Initialize current_pose_ member
-        {}
+// Single-dimension PID controller for x, y, or yaw control
+class SingleDimensionPID {
+private:
+    double kp_, ki_, kd_;    // PID gains
+    double min_output_;      // Min output value
+    double max_output_;      // Max output value
+    double error_sum_;       // Accumulated error (for I term)
+    double prev_error_;      // Previous error (for D term)
+    double dt_;              // Time step
+    
+public:
+    SingleDimensionPID(
+        double kp = 1.0, double ki = 0.0, double kd = 0.0,
+        double min_output = -1.0, double max_output = 1.0,
+        double dt = 0.01
+    ) : kp_(kp), ki_(ki), kd_(kd),
+        min_output_(min_output), max_output_(max_output),
+        error_sum_(0.0), prev_error_(0.0), dt_(dt) {}
+    
+    // Reset the controller state
+    void reset() {
+        error_sum_ = 0.0;
+        prev_error_ = 0.0;
+    }
+    
+    // Set the time step
+    void setTimeStep(double dt) {
+        dt_ = dt;
+    }
+    
+    // Set the output limits
+    void setOutputLimits(double min_output, double max_output) {
+        min_output_ = min_output;
+        max_output_ = max_output;
+    }
+    
+    // Calculate control output based on error
+    double calculate(double error) {
+        // P term
+        double p_term = kp_ * error;
         
-        // Set new path
-        void setPath(const Waypoints& new_path) {
-            path_ = new_path;
-            current_waypoint_idx_ = 0;
-            
-            // Reset PID values
-            prev_pos_error_ = 0.0;
-            prev_ang_error_ = 0.0;
-            pos_error_integral_ = 0.0;
-            ang_error_integral_ = 0.0;
-            
-            if (!new_path.empty()) {
-                goal_reached_ = false;
-            } else {
-                goal_reached_ = true;
-                std::cout << "Received empty path!" << std::endl;
-            }
-        }
+        // I term (with anti-windup)
+        error_sum_ += error * dt_;
+        error_sum_ = std::clamp(error_sum_, -10.0, 10.0);  // Anti-windup
+        double i_term = ki_ * error_sum_;
         
-        // Helper function to convert world point to robot frame
-        Eigen::Vector3d getPositionInRobotFrame(const Eigen::Vector3d& goal_position, const Pose& robot_pose) {
-            // Calculate global offset vector
-            Eigen::Vector3d global_offset = goal_position - robot_pose.position;
-            
-            // Get the robot's rotation matrix
-            Eigen::Matrix3d rotation_matrix = robot_pose.orientation.toRotationMatrix();
-            
-            // Apply rotation to local coordinates
-            Eigen::Vector3d local_position = rotation_matrix.transpose() * global_offset;
-            
-            return local_position;
+        // D term
+        double error_rate = (error - prev_error_) / dt_;
+        double d_term = kd_ * error_rate;
+        
+        // Save error for next iteration
+        prev_error_ = error;
+        
+        // Sum all terms and apply output limits
+        double output = p_term + i_term + d_term;
+        return std::clamp(output, min_output_, max_output_);
+    }
+};
+
+// Main controller that uses three separate PID controllers
+class ThreeDimensionPIDController {
+public:
+    // Constructor with separate gains for each dimension
+    ThreeDimensionPIDController(
+        // X controller params
+        double x_p = 1.0, double x_i = 0.0, double x_d = 0.0,
+        // Y controller params
+        double y_p = 1.0, double y_i = 0.0, double y_d = 0.0,
+        // Yaw controller params
+        double yaw_p = 1.0, double yaw_i = 0.0, double yaw_d = 0.0,
+        // Limits and tolerances
+        double max_linear_vel = 0.3,    // Max linear velocity
+        double max_angular_vel = 0.3,   // Max angular velocity
+        double position_tolerance = 0.3, // Position tolerance
+        double angle_tolerance = 0.2    // Angle tolerance
+    ) : max_linear_vel_(max_linear_vel),
+        max_angular_vel_(max_angular_vel),
+        pos_tol_(position_tolerance),
+        ang_tol_(angle_tolerance),
+        current_waypoint_idx_(0),
+        goal_reached_(true),
+        dt_(0.01),  // Time step, adjust as needed
+        cmd_linear_x_(0.0),
+        cmd_linear_y_(0.0),
+        cmd_angular_(0.0)
+    {
+        // Create the three PID controllers
+        x_controller_ = SingleDimensionPID(x_p, x_i, x_d, -max_linear_vel, max_linear_vel, dt_);
+        y_controller_ = SingleDimensionPID(y_p, y_i, y_d, -max_linear_vel, max_linear_vel, dt_);
+        yaw_controller_ = SingleDimensionPID(yaw_p, yaw_i, yaw_d, -max_angular_vel, max_angular_vel, dt_);
+    }
+    
+    // Set new path
+    void setPath(const Waypoints& new_path) {
+        path_ = new_path;
+        current_waypoint_idx_ = 0;
+        
+        // Reset PID controllers
+        x_controller_.reset();
+        y_controller_.reset();
+        yaw_controller_.reset();
+        
+        if (!new_path.empty()) {
+            goal_reached_ = false;
+        } else {
+            goal_reached_ = true;
+            std::cout << "Received empty path!" << std::endl;
         }
+    }
+    
+    // Transform a target position from world frame to robot frame
+    Eigen::Vector3d getPositionInRobotFrame(const Eigen::Vector3d& world_point, 
+        double robot_x, double robot_y, double robot_yaw) {
+        // Calculate the transformation
+        double cos_yaw = cos(robot_yaw);
+        double sin_yaw = sin(robot_yaw);
 
-		// Eigen::Vector3d getPositionInRobotFrame2(const Eigen::Vector3d& world_point, double robot_x, double robot_y, double robot_yaw) {
-		// 	// Get transformation matrix from world to robot frame
-		// 	Eigen::Matrix3d transform = worldToRobotTransform(robot_x, robot_y, robot_yaw);
+        // Step 1: Translate - Subtract robot position from world point
+        double translated_x = world_point.x() - robot_x;
+        double translated_y = world_point.y() - robot_y;
+
+        // Step 2: Rotate - Apply rotation matrix to transform to robot's frame
+        double robot_frame_x = translated_x * cos_yaw + translated_y * sin_yaw;
+        double robot_frame_y = -translated_x * sin_yaw + translated_y * cos_yaw;
+
+        // Return the point in robot frame coordinates
+        return Eigen::Vector3d(
+            robot_frame_x,
+            robot_frame_y,
+            world_point.z()  // Z coordinate typically remains unchanged for 2D transformations
+        );
+    }
+
+    double normalize_angle(double angle) {
+        return std::atan2(std::sin(angle), std::cos(angle));
+    }
+    
+    // // Compute velocities based on current pose
+    // void computeVelocities(const Pose& current_pose) {
+    //     // Store current pose for use in current_yaw() method
+    //     current_pose_ = current_pose;
+        
+    //     // Check if we have a path and haven't reached the goal
+    //     if (path_.empty() || goal_reached_) {
+    //         cmd_linear_x_ = 0.0;
+    //         cmd_linear_y_ = 0.0;
+    //         cmd_angular_ = 0.0;
+    //         return;
+    //     }
+        
+    //     // Get current waypoint in world frame
+    //     const auto& target = path_[current_waypoint_idx_];
+        
+    //     // Create 3D point for target (z=0 for 2D navigation)
+    //     Eigen::Vector3d target_position(target.x, target.y, 0.0);
+        
+    //     // Transform target point to robot frame
+    //     Eigen::Vector3d target_in_robot_frame = getPositionInRobotFrame(
+    //         target_position, 
+    //         current_pose.position.x(), 
+    //         current_pose.position.y(), 
+    //         current_pose.yaw
+    //     );
+        
+    //     // Extract x and y components in robot frame
+    //     double dx_robot = target_in_robot_frame.x();
+    //     double dy_robot = target_in_robot_frame.y();
+        
+    //     // Distance to target (same in both frames)
+    //     double distance = std::sqrt(dx_robot*dx_robot + dy_robot*dy_robot);
+        
+    //     // Check if we've reached the current waypoint
+    //     if (distance <= pos_tol_) {
+    //         // Move to the next waypoint
+    //         current_waypoint_idx_++;
+            
+    //         // Reset PID controllers when switching waypoints
+    //         x_controller_.reset();
+    //         y_controller_.reset();
+    //         yaw_controller_.reset();
+            
+    //         // Check if we've reached the end of the path
+    //         if (current_waypoint_idx_ >= path_.size()) {
+    //             goal_reached_ = true;
+    //             cmd_linear_x_ = 0.0;
+    //             cmd_linear_y_ = 0.0;
+    //             cmd_angular_ = 0.0;
+    //             std::cout << "Goal reached!" << std::endl;
+    //             return;
+    //         }
+            
+    //         // Get new target waypoint
+    //         const auto& new_target = path_[current_waypoint_idx_];
+            
+    //         // Recalculate for new target
+    //         Eigen::Vector3d new_target_position(new_target.x, new_target.y, 0.0);
+    //         Eigen::Vector3d new_target_in_robot_frame = getPositionInRobotFrame(
+    //             new_target_position, 
+    //             current_pose.position.x(), 
+    //             current_pose.position.y(), 
+    //             current_pose.yaw
+    //         );
+
+    //         dx_robot = new_target_in_robot_frame.x();
+    //         dy_robot = new_target_in_robot_frame.y();
+    //         distance = std::sqrt(dx_robot*dx_robot + dy_robot*dy_robot);
+    //     }
+        
+    //     // Calculate errors for each dimension
+    //     // For x and y, the error is the difference in robot frame
+    //     double x_error = dx_robot;
+    //     double y_error = dy_robot;
+        
+    //     // For yaw, calculate the difference between target yaw and current yaw
+    //     double yaw_error = normalize_angle(target.yaw - current_pose_.yaw);
+        
+    //     // Feed errors to each PID controller
+    //     cmd_linear_x_ = x_controller_.calculate(x_error);
+    //     cmd_linear_y_ = y_controller_.calculate(y_error);
+    //     cmd_angular_ = yaw_controller_.calculate(yaw_error);
+        
+    //     // Dynamic speed reduction based on heading error or proximity
+    //     // If we're significantly off-heading, prioritize turning over moving
+    //     if (std::abs(yaw_error) > 0.5) {  // ~30 degrees
+    //         cmd_linear_x_ *= 0.5;  // Reduce forward speed to focus on turning
+    //         cmd_linear_y_ *= 0.5;  // Reduce lateral speed as well
+    //     }
+        
+    //     // Debug output
+    //     if (DEBUG_MODE) {
+    //         std::cout << "=========================================================" << std::endl;
+    //         std::cout << "Target world: (" << target.x << ", " << target.y << ")" << std::endl;
+    //         std::cout << "Target robot: (" << dx_robot << ", " << dy_robot << ")" << std::endl;
+    //         std::cout << "Current: (" << current_pose.position.x() << ", " 
+    //                   << current_pose.position.y() << "), yaw: " << current_yaw() << std::endl;
+    //         std::cout << "Distance: " << distance << ", Yaw error: " << yaw_error << " rad" << std::endl;
+    //         std::cout << "Cmd: x=" << cmd_linear_x_ << ", y=" << cmd_linear_y_ << ", angular=" << cmd_angular_ << std::endl;
+    //         std::cout << "=========================================================" << std::endl;
+    //     }
+    // }
+
+	// Compute velocities based on current pose
+	void computeVelocities(const Pose& current_pose) {
+		// Store current pose for use in current_yaw() method
+		current_pose_ = current_pose;
+		
+		// Check if we have a path and haven't reached the goal
+		if (path_.empty() || goal_reached_) {
+			cmd_linear_x_ = 0.0;
+			cmd_linear_y_ = 0.0;
+			cmd_angular_ = 0.0;
+			return;
+		}
+		
+		// Get current waypoint in world frame
+		const auto& target = path_[current_waypoint_idx_];
+		
+		// Create 3D point for target (z=0 for 2D navigation)
+		Eigen::Vector3d target_position(target.x, target.y, 0.0);
+		
+		// Transform target point to robot frame
+		Eigen::Vector3d target_in_robot_frame = getPositionInRobotFrame(
+			target_position, 
+			current_pose.position.x(), 
+			current_pose.position.y(), 
+			current_pose.yaw
+		);
+		
+		// Extract x and y components in robot frame
+		double dx_robot = target_in_robot_frame.x();
+		double dy_robot = target_in_robot_frame.y();
+		
+		// Distance to target (same in both frames)
+		double distance = std::sqrt(dx_robot*dx_robot + dy_robot*dy_robot);
+		
+		// Calculate yaw error early so we can use it in the waypoint reached condition
+		double yaw_error = normalize_angle(target.yaw - current_pose_.yaw);
+		
+		// Check if we've reached the current waypoint (both position AND orientation)
+		if (distance <= pos_tol_ && std::abs(yaw_error) <= ang_tol_) {
+			// Move to the next waypoint
+			current_waypoint_idx_++;
 			
-		// 	// Create homogeneous coordinates for the world point
-		// 	Eigen::Vector3d homogeneous_point;
-		// 	homogeneous_point << world_point.x(), world_point.y(), 1.0;
+			// Reset PID controllers when switching waypoints
+			x_controller_.reset();
+			y_controller_.reset();
+			yaw_controller_.reset();
 			
-		// 	// Apply transformation to get the point in robot frame (in homogeneous coordinates)
-		// 	Eigen::Vector3d robot_frame_homogeneous = transform * homogeneous_point;
+			// Check if we've reached the end of the path
+			if (current_waypoint_idx_ >= path_.size()) {
+				goal_reached_ = true;
+				cmd_linear_x_ = 0.0;
+				cmd_linear_y_ = 0.0;
+				cmd_angular_ = 0.0;
+				std::cout << "Goal reached!" << std::endl;
+				return;
+			}
 			
-		// 	// Return the point in robot frame as a 3D vector 
-		// 	// (x, y from the transformation, z we can keep from the original point)
-		// 	return Eigen::Vector3d(
-		// 		robot_frame_homogeneous.x(),
-		// 		robot_frame_homogeneous.y(),
-		// 		world_point.z()  // Typically z-coordinate passes through unchanged for a ground robot
-		// 	);
-		// }
-
-		Eigen::Vector3d getPositionInRobotFrame2(const Eigen::Vector3d& world_point, 
-			double robot_x, double robot_y, double robot_yaw) {
-			// Calculate the transformation
-			double cos_yaw = cos(robot_yaw);
-			double sin_yaw = sin(robot_yaw);
-
-			// Step 1: Translate - Subtract robot position from world point
-			double translated_x = world_point.x() - robot_x;
-			double translated_y = world_point.y() - robot_y;
-
-			// Step 2: Rotate - Apply rotation matrix to transform to robot's frame
-			// This uses the standard 2D rotation matrix for rotation by -yaw
-			// but written in the more common robotics form
-			double robot_frame_x = translated_x * cos_yaw + translated_y * sin_yaw;
-			double robot_frame_y = -translated_x * sin_yaw + translated_y * cos_yaw;
-
-			// Return the point in robot frame coordinates
-			return Eigen::Vector3d(
-			robot_frame_x,
-			robot_frame_y,
-			world_point.z()  // Z coordinate typically remains unchanged for 2D transformations
+			// Get new target waypoint
+			const auto& new_target = path_[current_waypoint_idx_];
+			
+			// Recalculate for new target
+			Eigen::Vector3d new_target_position(new_target.x, new_target.y, 0.0);
+			Eigen::Vector3d new_target_in_robot_frame = getPositionInRobotFrame(
+				new_target_position, 
+				current_pose.position.x(), 
+				current_pose.position.y(), 
+				current_pose.yaw
 			);
+
+			dx_robot = new_target_in_robot_frame.x();
+			dy_robot = new_target_in_robot_frame.y();
+			distance = std::sqrt(dx_robot*dx_robot + dy_robot*dy_robot);
+			
+			// Recalculate yaw error for the new target
+			yaw_error = normalize_angle(new_target.yaw - current_pose_.yaw);
 		}
-
-		Eigen::Matrix3d worldToRobotTransform(double robot_x, double robot_y, double robot_yaw) {
-			Eigen::Matrix3d transform = Eigen::Matrix3d::Identity();
-			
-			// Set the rotation part
-			transform(0, 0) = cos(robot_yaw);
-			transform(0, 1) = sin(robot_yaw);
-			transform(1, 0) = -sin(robot_yaw);
-			transform(1, 1) = cos(robot_yaw);
-			
-			// Set the translation part
-			transform(0, 2) = -robot_x * cos(robot_yaw) - robot_y * sin(robot_yaw);
-			transform(1, 2) = robot_x * sin(robot_yaw) - robot_y * cos(robot_yaw);
-			
-			return transform;
+		
+		// Calculate errors for each dimension
+		// For x and y, the error is the difference in robot frame
+		double x_error = dx_robot;
+		double y_error = dy_robot;
+		
+		// For yaw, we already calculated the error above
+		// No need to recalculate: double yaw_error = normalize_angle(target.yaw - current_pose_.yaw);
+		
+		// Feed errors to each PID controller
+		cmd_linear_x_ = x_controller_.calculate(x_error);
+		cmd_linear_y_ = y_controller_.calculate(y_error);
+		cmd_angular_ = yaw_controller_.calculate(yaw_error);
+		
+		// Dynamic speed reduction based on heading error or proximity
+		// If we're significantly off-heading, prioritize turning over moving
+		if (std::abs(yaw_error) > 0.5) {  // ~30 degrees
+			cmd_linear_x_ *= 0.5;  // Reduce forward speed to focus on turning
+			cmd_linear_y_ *= 0.5;  // Reduce lateral speed as well
 		}
-
-		double normalize_angle(double angle) {
-			return std::atan2(std::sin(angle), std::cos(angle));
+		
+		// Additional strategy: When close to the waypoint, prioritize orientation
+		if (distance < pos_tol_ * 2 && std::abs(yaw_error) > ang_tol_) {
+			// We're close to the waypoint but orientation is off
+			// Reduce linear velocities even more to focus on orientation
+			cmd_linear_x_ *= 0.3;
+			cmd_linear_y_ *= 0.3;
 		}
-        
-        // Compute velocities based on current pose - Working in robot frame
-        void computeVelocities(const Pose& current_pose) {
-            // Store current pose for use in current_yaw() method
-            current_pose_ = current_pose;
-            
-            // Check if we have a path and haven't reached the goal
-            if (path_.empty() || goal_reached_) {
-                cmd_linear_ = 0.0;
-                cmd_angular_ = 0.0;
-                return;
-            }
-            
-            // Get current waypoint in world frame
-            const auto& target = path_[current_waypoint_idx_];
-            
-            // Create 3D point for target (z=0 for 2D navigation)
-            Eigen::Vector3d target_position(target.x, target.y, 0.0);
-            
-            // Transform target point to robot frame using Eigen
-            // Eigen::Vector3d target_in_robot_frame2 = getPositionInRobotFrame(target_position, current_pose);
-			// std::cout<<"dx "<<target_in_robot_frame2.x()<<"dy "<< target_in_robot_frame2.y()<<std::endl;
-
-			Eigen::Vector3d target_in_robot_frame = getPositionInRobotFrame2(target_position, current_pose.position.x(), current_pose.position.y(), current_pose.yaw);
-            // std::cout<<"dx2 "<<target_in_robot_frame.x()<<"dy2 "<< target_in_robot_frame.y()<<std::endl;
-            // Extract x and y components in robot frame
-            double dx_robot = target_in_robot_frame.x();
-            double dy_robot = target_in_robot_frame.y();
-            
-            // Distance to target (same in both frames)
-            double distance = std::sqrt(dx_robot*dx_robot + dy_robot*dy_robot);
-            
-            // Check if we've reached the current waypoint
-            if (distance <= pos_tol_) {
-                // Move to the next waypoint
-                current_waypoint_idx_++;
-                
-                // Reset integral terms when switching waypoints
-                pos_error_integral_ = 0.0;
-                ang_error_integral_ = 0.0;
-                
-                // Check if we've reached the end of the path
-                if (current_waypoint_idx_ >= path_.size()) {
-                    goal_reached_ = true;
-                    cmd_linear_ = 0.0;
-                    cmd_angular_ = 0.0;
-                    std::cout << "Goal reached!" << std::endl;
-                    return;
-                }
-                
-                // Get new target waypoint
-                const auto& new_target = path_[current_waypoint_idx_];
-                
-                // Recalculate for new target
-                Eigen::Vector3d new_target_position(new_target.x, new_target.y, 0.0);
-                Eigen::Vector3d new_target_in_robot_frame = getPositionInRobotFrame2(new_target_position, current_pose.position.x(), current_pose.position.y(), current_pose.yaw);
-
-                dx_robot = new_target_in_robot_frame.x();
-                dy_robot = new_target_in_robot_frame.y();
-                distance = std::sqrt(dx_robot*dx_robot + dy_robot*dy_robot);
-            }
-            
-            // In robot frame, the error in heading is just atan2(dy_robot, dx_robot)
-            // since the robot's heading is along the x-axis in its own frame
-            double target_direction = std::atan2(dy_robot, dx_robot);
-			// double yaw_error = target.yaw - current_pose_.yaw;
-			// double yaw_error = normalize_angle(target.yaw - current_pose_.yaw);
-			double yaw_error = std::atan2(
-				std::sin(target.yaw - current_pose_.yaw),
-				std::cos(target.yaw - current_pose_.yaw)
-			);
-
-			
-			// Normalize the yaw error to [-π, π]
-			// while (yaw_error > M_PI) yaw_error -= 2 * M_PI;
-			// while (yaw_error < -M_PI) yaw_error += 2 * M_PI;
-
-			double effective_angular_error = 0.7 * target_direction + 0.3 * yaw_error;
-			// double effective_angular_error = target_direction;
-            
-            // Calculate PID terms for position control
-			// double heading_factor = std::cos(target_direction);
-            double pos_error = distance;
-            pos_error_integral_ += pos_error * dt_;
-            // Apply anti-windup to prevent integral term from growing too large
-            pos_error_integral_ = std::clamp(pos_error_integral_, -10.0, 10.0);
-            double pos_derivative = (pos_error - prev_pos_error_) / dt_;
-            
-            // Calculate PID terms for heading control
-            ang_error_integral_ += effective_angular_error * dt_;
-            // Apply anti-windup to prevent integral term from growing too large
-            ang_error_integral_ = std::clamp(ang_error_integral_, -10.0, 10.0);
-            double ang_derivative = (effective_angular_error - prev_ang_error_) / dt_;
-            
-            // Save current errors for next iteration
-            prev_pos_error_ = pos_error;
-            prev_ang_error_ = effective_angular_error;
-            
-            // Calculate control signals
-            // For position, we use a cosine factor to reduce speed when off-heading
-            double heading_factor = std::cos(target_direction);
-            double pos_control = pos_p_ * pos_error + 
-                                 pos_i_ * pos_error_integral_ + 
-                                 pos_d_ * pos_derivative;
-            
-            // Linear velocity depends on position error and heading alignment
-            cmd_linear_ = std::min(pos_control * heading_factor, max_linear_vel_);
-            
-            // If we're significantly off-heading, prioritize turning over moving
-            if (std::abs(target_direction) > 0.5) {  // ~30 degrees
-                cmd_linear_ *= 0.5;  // Reduce forward speed to focus on turning
-            }
-            
-			
-
-            // Angular velocity control
-            double ang_control = ang_p_ * effective_angular_error + 
-                                ang_i_ * ang_error_integral_ + 
-                                ang_d_ * ang_derivative;
-            
-            cmd_angular_ = std::clamp(ang_control, -max_angular_vel_, max_angular_vel_);
-            
-            if (DEBUG_MODE) {
-				std::cout << "=========================================================" << std::endl;
-                std::cout << "Target world: (" << target.x << ", " << target.y << ")" << std::endl;
-                std::cout << "Target robot: (" << dx_robot << ", " << dy_robot << ")" << std::endl;
-                std::cout << "Current: (" << current_pose.position.x() << ", " 
-                          << current_pose.position.y() << "), yaw: " << current_yaw() << std::endl;
-                std::cout << "Distance: " << distance << ", Yaw error: " << effective_angular_error << " rad" << std::endl;
-                std::cout << "Cmd: linear=" << cmd_linear_ << ", angular=" << cmd_angular_ << std::endl;
-				std::cout << "=========================================================" << std::endl;
-            }
-        }
-        
-        // // Generate a path by interpolating waypoints
-        // Waypoints interpolateWaypoints(const Eigen::Vector3d& start_position, const Eigen::Vector3d& goal_position, 
-        //                             double max_segment_length = 1.0, bool include_start = false) {
-        //     Waypoints result;
-            
-        //     // Calculate total distance
-        //     double dx = goal_position.x() - start_position.x();
-        //     double dy = goal_position.y() - start_position.y();
-        //     double dz = goal_position.z() - start_position.z();
-        //     double total_distance = std::sqrt(dx*dx + dy*dy + dz*dz);
-            
-        //     // Calculate how many segments we need
-        //     int num_segments = std::ceil(total_distance / max_segment_length);
-            
-        //     // Make sure we have at least one segment
-        //     num_segments = std::max(num_segments, 1);
-            
-        //     // Calculate the step size for each segment
-        //     double step_x = dx / num_segments;
-        //     double step_y = dy / num_segments;
-        //     double step_z = dz / num_segments;
-            
-        //     // Add start point if requested
-        //     if (include_start) {
-        //         result.addPoint(start_position.x(), start_position.y());
-        //     }
-            
-        //     // Add intermediate points
-        //     for (int i = 1; i < num_segments; i++) {
-        //         double x = start_position.x() + step_x * i;
-        //         double y = start_position.y() + step_y * i;
-                
-        //         // Calculate heading towards the next point
-        //         double next_x = (i == num_segments - 1) ? goal_position.x() : start_position.x() + step_x * (i + 1);
-        //         double next_y = (i == num_segments - 1) ? goal_position.y() : start_position.y() + step_y * (i + 1);
-        //         double heading = std::atan2(next_y - y, next_x - x);
-                
-        //         result.addPoint(x, y, heading);
-        //     }
-            
-        //     // Add goal point
-        //     // Calculate final heading (from the previous-to-last point to the goal)
-        //     double prev_x = start_position.x() + step_x * (num_segments - 1);
-        //     double prev_y = start_position.y() + step_y * (num_segments - 1);
-        //     double final_heading = std::atan2(goal_position.y() - prev_y, goal_position.x() - prev_x);
-            
-        //     result.addPoint(goal_position.x(), goal_position.y(), final_heading);
-            
-        //     return result;
-        // }
-        
-        // // Helper method to set a path with interpolation when needed
-        // void setTargetWithInterpolation(double x, double y, double yaw = 0.0, double max_segment_length = 1.0) {
-        //     // Create target position as 3D point
-        //     Eigen::Vector3d target_position(x, y, 0.0);
-            
-        //     // Get current robot position
-        //     Eigen::Vector3d start_position(current_pose_.position);
-            
-        //     // Calculate direct distance
-        //     double dx = target_position.x() - start_position.x();
-        //     double dy = target_position.y() - start_position.y();
-        //     double distance = std::sqrt(dx*dx + dy*dy);
-            
-        //     // If distance is greater than the segment length, create interpolated waypoints
-        //     if (distance > max_segment_length) {
-        //         Waypoints interpolated_path = interpolateWaypoints(start_position, target_position, max_segment_length);
-        //         setPath(interpolated_path);
-                
-        //         if(DEBUG_MODE) {
-        //             std::cout << "Generated interpolated path with " << interpolated_path.size() 
-        //                       << " waypoints over " << distance << " meters" << std::endl;
-        //             for (size_t i = 0; i < interpolated_path.size(); i++) {
-        //                 std::cout << "  Waypoint " << i << ": (" << interpolated_path[i].x 
-        //                           << ", " << interpolated_path[i].y << ")" << std::endl;
-        //             }
-        //         }
-        //     } else {
-        //         // Distance is small, just set a single waypoint
-        //         Waypoints path;
-        //         path.addPoint(x, y, yaw);
-        //         setPath(path);
-                
-        //         if(DEBUG_MODE) {
-        //             std::cout << "Set direct target point: (" << x << ", " << y << ", " << yaw << ")" << std::endl;
-        //         }
-        //     }
-        // }
-        
-        // Helper to extract yaw angle from pose
-        double current_yaw() const {
-            Eigen::Matrix3d rot_matrix = current_pose_.orientation.toRotationMatrix();
-            return std::atan2(rot_matrix(1, 0), rot_matrix(0, 0));
-        }
-        
-        // Get current linear velocity command
-        double getLinearVelocity() const {
-            return cmd_linear_;
-        }
-        
-        // Get current angular velocity command
-        double getAngularVelocity() const {
-            return cmd_angular_;
-        }
-        
-        // Check if goal has been reached
-        bool isGoalReached() const {
-            return goal_reached_;
-        }
-        
-        // Set the position tolerance
-        void setPositionTolerance(double tolerance) {
-            pos_tol_ = tolerance;
-        }
-        
-        // Set the angle tolerance
-        void setAngleTolerance(double tolerance) {
-            ang_tol_ = tolerance;
-        }
-        
-        // Set the time step
-        void setTimeStep(double dt) {
-            dt_ = dt;
-        }
-        
-        // Public access to current pose (needed for Custom class)
-        Pose current_pose_;
-        
-    private:
-        // Path
-        Waypoints path_;
-        
-        // PID gains
-        double pos_p_, pos_i_, pos_d_;  // Position control gains
-        double ang_p_, ang_i_, ang_d_;  // Angular control gains
-        
-        // Control limits
-        double max_linear_vel_;
-        double max_angular_vel_;
-        
-        // Tolerances
-        double pos_tol_;
-        double ang_tol_;
-        
-        // PID state variables
-        double prev_pos_error_;
-        double prev_ang_error_;
-        double pos_error_integral_;
-        double ang_error_integral_;
-        double dt_;
-        
-        // Path following state
-        size_t current_waypoint_idx_;
-        bool goal_reached_;
-        
-        // Command outputs
-        double cmd_linear_;
-        double cmd_angular_;
-    };
+		
+		// Debug output
+		if (DEBUG_MODE) {
+			std::cout << "=========================================================" << std::endl;
+			std::cout << "Target world: (" << target.x << ", " << target.y << "), yaw: " << target.yaw << std::endl;
+			std::cout << "Target robot: (" << dx_robot << ", " << dy_robot << ")" << std::endl;
+			std::cout << "Current: (" << current_pose.position.x() << ", " 
+					<< current_pose.position.y() << "), yaw: " << current_yaw() << std::endl;
+			std::cout << "Distance: " << distance << ", Yaw error: " << yaw_error << " rad" << std::endl;
+			std::cout << "Position tolerance: " << pos_tol_ << ", Angle tolerance: " << ang_tol_ << std::endl;
+			std::cout << "Cmd: x=" << cmd_linear_x_ << ", y=" << cmd_linear_y_ << ", angular=" << cmd_angular_ << std::endl;
+			std::cout << "=========================================================" << std::endl;
+		}
+	}
+    
+    // Helper to extract yaw angle from pose
+    double current_yaw() const {
+        return current_pose_.yaw;
+    }
+    
+    // Get current velocity commands
+    double getLinearVelocityX() const {
+        return cmd_linear_x_;
+    }
+    
+    double getLinearVelocityY() const {
+        return cmd_linear_y_;
+    }
+    
+    double getAngularVelocity() const {
+        return cmd_angular_;
+    }
+    
+    // Check if goal has been reached
+    bool isGoalReached() const {
+        return goal_reached_;
+    }
+    
+    // Set the position tolerance
+    void setPositionTolerance(double tolerance) {
+        pos_tol_ = tolerance;
+    }
+    
+    // Set the angle tolerance
+    void setAngleTolerance(double tolerance) {
+        ang_tol_ = tolerance;
+    }
+    
+    // Set the time step
+    void setTimeStep(double dt) {
+        dt_ = dt;
+        x_controller_.setTimeStep(dt);
+        y_controller_.setTimeStep(dt);
+        yaw_controller_.setTimeStep(dt);
+    }
+    
+    // Public access to current pose (needed for Custom class)
+    Pose current_pose_;
+    
+private:
+    // Individual PID controllers for each dimension
+    SingleDimensionPID x_controller_;
+    SingleDimensionPID y_controller_;
+    SingleDimensionPID yaw_controller_;
+    
+    // Path
+    Waypoints path_;
+    
+    // Control limits
+    double max_linear_vel_;
+    double max_angular_vel_;
+    
+    // Tolerances
+    double pos_tol_;
+    double ang_tol_;
+    
+    // Path following state
+    size_t current_waypoint_idx_;
+    bool goal_reached_;
+    double dt_;
+    
+    // Command outputs
+    double cmd_linear_x_;
+    double cmd_linear_y_;
+    double cmd_angular_;
+};
 
 // ##########################################################################################
 // ####################################### Main Class #######################################
@@ -584,11 +597,15 @@ public:
 		
 		robot_pose = Pose();
         
-
-		// Create PID controller with tuned parameters
-		// Position PID: P=1.0, I=0.05, D=0.1
-		// Angular PID: P=1.5, I=0.0, D=0.3
-		controller = PIDController(1.0, 0.05, 0.1, 1.0, 0.0, 0.3, 0.3, 0.3, 0.1, 0.1);
+		// Create three-dimension PID controller with tuned parameters
+		// X PID: P=1.0, I=0.05, D=0.1
+		// Y PID: P=1.0, I=0.05, D=0.1
+		// Yaw PID: P=1.0, I=0.0, D=0.3
+		controller = ThreeDimensionPIDController(
+		    1.0, 0.05, 0.1,  // X PID gains
+		    1.0, 0.05, 0.1,  // Y PID gains
+		    1.0, 0.0, 0.3,   // Yaw PID gains
+		    0.3, 0.3, 0.2, 0.2);  // Max velocities and tolerances
 		
 		// Set the sampling time for the controller
 		controller.setTimeStep(dt);
@@ -597,42 +614,22 @@ public:
 		sleep(1);
 		updatePoseFromMocap();
 
-		// updateTargetPointFromPlanner();
+		// Set waypoints for testing
 		setWaypoints();
-
-        // setTargetPoint(0.0, 4.0, 0.0);
-
-		// waypoint_pos.push_back(Eigen::Vector3d(1.0, 0.7, 3.0));  // First waypoint (x=1, y=2, z=3)
-		// waypoint_pos.push_back(Eigen::Vector3d(4.0, 5.0, 6.0));  // Second waypoint (x=4, y=5, z=6)
-		// waypoint_pos.push_back(Eigen::Vector3d(7.0, 8.0, 9.0));  // Third waypoint (x=7, y=8, z=9)
-		
-		// Alternative: using emplace_back instead of push_back
-		// waypoint_pos.emplace_back(10.0, 11.0, 12.0);  // Fourth waypoint
-		
-
-		
-
-		// // Set initial waypoint with interpolation
-		// wayppointInterpolation();
-
-        // controller.setPath(path);
 	};
 
 	~Custom(){
 		delete zmq_socket;
 		delete zmq_context;
+		delete zmq_planner_socket;
+		delete zmq_planner_context;
 	}
 
     void setTargetPoint(double x, double y, double yaw = 0.0) {
         // Add the target point
-        // goal_position(x, y, yaw);
         goal_position.x() = x;
         goal_position.y() = y;
         goal_position.z() = yaw;
-        // target_position.addPoint(x, y, yaw);
-        
-        // Pass the path to the controller
-        // controller.receivePath(path);
         
         if(DEBUG_MODE) {
             std::cout << "Set new target point: (" << x << ", " << y << ", " << yaw << ")" << std::endl;
@@ -642,11 +639,7 @@ public:
 	void setWaypoints(){
 		std::vector<Eigen::Vector3d> waypoint_pos;
 		
-		// waypoint_pos.push_back(Eigen::Vector3d(1.79045, 1.27715, 0));
-
-
-		// waypoint_pos.push_back(Eigen::Vector3d(3.0, 1.0, 0.0));
-		
+		// Example rectangular path with orientation
 		waypoint_pos.push_back(Eigen::Vector3d(2.0, 0.6, 0));
 		waypoint_pos.push_back(Eigen::Vector3d(4.0, 0.6, 1.57));
 		waypoint_pos.push_back(Eigen::Vector3d(4.0, 1.6, 3.14));
@@ -676,7 +669,7 @@ public:
         // If distance is below threshold, just add the target point
         const double DISTANCE_THRESHOLD = 0.5; // meters
         if (distance <= DISTANCE_THRESHOLD) {
-            path.addPoint(goal_position.x(), goal_position.y(), goal_position.z()); // 使用目标点的yaw值
+            path.addPoint(goal_position.x(), goal_position.y(), goal_position.z()); // Use target's yaw value
             return;
         }
         
@@ -692,37 +685,32 @@ public:
         // Calculate heading/yaw from direction vector
         double path_yaw = std::atan2(direction.y(), direction.x());
         
-        // 获取当前机器人的yaw角
+        // Get current robot's yaw angle
         Eigen::Matrix3d rot_matrix = robot_pose.orientation.toRotationMatrix();
         double current_yaw = std::atan2(rot_matrix(1, 0), rot_matrix(0, 0));
         
-        // 目标yaw角值(使用goal_position.z()存储的yaw值)
+        // Target yaw angle (stored in goal_position.z())
         double target_yaw = goal_position.z();
         
-        // 添加中间点
+        // Add intermediate points
         for (int i = 0; i < num_points; i++) {
             double ratio = static_cast<double>(i) / (num_points - 1);
             
-            // 位置线性插值
+            // Linear position interpolation
             Eigen::Vector2d point = start + ratio * (end - start);
             
-            // Yaw角线性插值
-            // 有两种可能的插值方式:
-            // 1. 从当前朝向到目标朝向的插值
-            // 2. 使用路径朝向(path_yaw)作为每个点的朝向
-            
-            // 这里使用第一种方式: 从当前朝向到目标朝向的插值
-            // 但首先需要处理角度差，确保选择最短路径旋转
+            // Yaw angle linear interpolation
+            // Normalize angle difference to ensure shortest path rotation
             double yaw_diff = target_yaw - current_yaw;
             
-            // 标准化角度差到[-π, π]范围
+            // Normalize angle difference to [-π, π] range
             while (yaw_diff > M_PI) yaw_diff -= 2 * M_PI;
             while (yaw_diff < -M_PI) yaw_diff += 2 * M_PI;
             
-            // 计算插值后的yaw
+            // Calculate interpolated yaw
             double interpolated_yaw = current_yaw + ratio * yaw_diff;
             
-            // 添加点到路径
+            // Add point to path
             path.addPoint(point.x(), point.y(), interpolated_yaw);
         }
         
@@ -824,8 +812,6 @@ public:
 					<< robot_pose.position.y() << " orientation: " 
 					<< robot_pose.orientation.x() << " " << robot_pose.orientation.y() << " " 
 					<< robot_pose.orientation.z() << " " << robot_pose.orientation.w() << std::endl;
-
-
 		
 					// Print obstacle information
 					std::cout << "Found " << obstacles_pose.size() << " obstacles" << std::endl;
@@ -870,36 +856,13 @@ public:
 							double x = waypoints_array[i][0].get<double>();
 							double y = waypoints_array[i][1].get<double>();
 							
-							// // Calculate yaw (heading) if not the last point
+							// Calculate yaw (heading) if not the last point
 							double yaw = 0.0;
-							const double EPSILON = 1e-6;
 							if (i < waypoints_array.size() - 1 && waypoints_array[i+1].size() >= 2) {
 								double next_x = waypoints_array[i+1][0].get<double>();
 								double next_y = waypoints_array[i+1][1].get<double>();
 								yaw = std::atan2(next_y - y, next_x - x);
 								if(i == waypoints_array.size()-3)	yaw = 0.0;
-								// std::cout << "============================================================" << std::endl;
-								// std::cout << next_y << " " << y << " " << next_x << " " <<  x << std::endl;
-								// std::cout << next_y - y << " " << next_x - x << " " << yaw << std::endl;
-
-								// if (yaw == M_PI)	
-								// if (yaw - M_PI < EPSILON){
-								// 	yaw = 0.0;
-								// }
-								// double dx = waypoints_array[i+1][0].get<double>() - next_x;
-								// double dy =  waypoints_array[i+1][1].get<double>() - next_y;
-
-								// if (std::abs(dy) < EPSILON) {
-								// 	// Moving horizontally
-								// 	yaw = (dx >= 0) ? 0.0 : M_PI;  // 0 for right, π for left
-								// } else if (std::abs(dx) < EPSILON) {
-								// 	// Moving vertically
-								// 	yaw = (dy >= 0) ? M_PI/2 : -M_PI/2;  // π/2 for up, -π/2 for down
-								// } else {
-								// 	// Diagonal movement
-								// 	yaw = std::atan2(dy, dx);
-								// }
-								// yaw = std::atan2(dy, dx);
 							}
 							
 							// Add to the path
@@ -917,8 +880,6 @@ public:
 					
 					if(DEBUG_MODE) {
 						std::cout << "Set " << path.size() << " waypoints in the controller" << std::endl;
-
-						// for(int i = 0; i < path.size())
 					}
 				} else {
 					if(DEBUG_MODE) {
@@ -953,14 +914,17 @@ public:
 			// If the goal hasn't been reached, send control commands
 			if (!controller.isGoalReached()) {
 				// Get computed linear and angular velocities
-				double linear_vel = controller.getLinearVelocity();
+				// double linear_vel = controller.getLinearVelocity();
 				double angular_vel = controller.getAngularVelocity();
+
+				double vx = controller.getLinearVelocityX();
+				double vy = controller.getLinearVelocityY();
 				
 				// Send control commands to the robot
-				sport_client.Move(linear_vel, 0, angular_vel);
+				sport_client.Move(vx, vy, angular_vel);
 				
 				if(DEBUG_MODE){
-					std::cout << "PID Control: v=" << linear_vel << ", w=" << angular_vel << std::endl;
+					std::cout << "PID Control: vx=" << vx << "vy "<<vy <<", w=" << angular_vel << std::endl;
 					std::cout << "Position: " << robot_pose.position.x() << ", " 
 											<< robot_pose.position.y() << ", " 
 											<< robot_pose.position.z() << std::endl;
@@ -1128,7 +1092,8 @@ public:
 	unitree::robot::go2::SportClient sport_client;
 	unitree::robot::ChannelSubscriberPtr<unitree_go::msg::dds_::SportModeState_> suber;
 
-	PIDController controller;  // PID controller instead of PurePursuit
+	// PIDController controller;  // PID controller instead of PurePursuit
+	ThreeDimensionPIDController controller;
 	zmq::context_t* zmq_context;
 	zmq::socket_t* zmq_socket;
 
