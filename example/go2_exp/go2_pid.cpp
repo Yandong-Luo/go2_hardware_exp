@@ -12,12 +12,16 @@
 #include <vector>
 #include <zmq.hpp>
 #include <nlohmann/json.hpp> // JSON parsing library
+#include <chrono>
 
 using json = nlohmann::json;
 
 #define TOPIC_HIGHSTATE "rt/sportmodestate"
 
 #define DEBUG_MODE true
+
+#define MAX_LINEAR_VEL 0.5
+#define MAX_ANGULAR_VEL 0.5
 
 using namespace unitree::common;
 
@@ -70,10 +74,10 @@ struct Pose {
 class Waypoints {
 private:
 	struct Point2D {
-		double x, y, yaw;
+		double x, y, yaw, wait_time;
 		
-		Point2D() : x(0.0), y(0.0), yaw(0.0) {}
-		Point2D(double _x, double _y, double _yaw = 0.0) : x(_x), y(_y), yaw(_yaw) {}
+		Point2D() : x(0.0), y(0.0), yaw(0.0), wait_time(0.0){}
+		Point2D(double _x, double _y, double _yaw = 0.0, double _wait_time=0.0) : x(_x), y(_y), yaw(_yaw), wait_time(_wait_time) {}
 		
 		Eigen::Vector2d position() const {
 			return Eigen::Vector2d(x, y);
@@ -85,8 +89,8 @@ private:
 public:
 	Waypoints() {}
 	
-	void addPoint(double x, double y, double yaw = 0.0) {
-		points.emplace_back(x, y, yaw);
+	void addPoint(double x, double y, double yaw = 0.0, double wait_time=0.0) {
+		points.emplace_back(x, y, yaw, wait_time);
 	}
 	
 	const Point2D& getPoint(size_t index) const {
@@ -130,6 +134,11 @@ public:
 	typename std::vector<Point2D>::const_iterator begin() const { return points.begin(); }
 	typename std::vector<Point2D>::const_iterator end() const { return points.end(); }
 };
+
+double getCurrentTime() {
+    using namespace std::chrono;
+    return duration_cast<duration<double>>(steady_clock::now().time_since_epoch()).count();
+}
 
 // Single-dimension PID controller for x, y, or yaw control
 class SingleDimensionPID {
@@ -215,7 +224,8 @@ public:
         dt_(0.01),  // Time step, adjust as needed
         cmd_linear_x_(0.0),
         cmd_linear_y_(0.0),
-        cmd_angular_(0.0)
+        cmd_angular_(0.0),
+		waiting_(false)
     {
         // Create the three PID controllers
         x_controller_ = SingleDimensionPID(x_p, x_i, x_d, -max_linear_vel, max_linear_vel, dt_);
@@ -411,6 +421,38 @@ public:
 		
 		// Check if we've reached the current waypoint (both position AND orientation)
 		if (distance <= pos_tol_ && std::abs(yaw_error) <= ang_tol_) {
+			const double wait_duration = target.wait_time;
+			std::cout<<"current wait time:"<<wait_duration<<std::endl;
+			if (!waiting_ && wait_duration > 0.0) {
+				// Start waiting
+				waiting_ = true;
+				wait_start_time_ = getCurrentTime();
+
+				// Zero velocity during wait
+				cmd_linear_x_ = 0.0;
+				cmd_linear_y_ = 0.0;
+				cmd_angular_ = 0.0;
+
+				if (DEBUG_MODE) {
+					std::cout << "Waiting for " << wait_duration << " seconds at waypoint " << current_waypoint_idx_ << std::endl;
+				}
+				return;
+			}
+
+			if (waiting_) {
+				double elapsed = getCurrentTime() - wait_start_time_;
+				if (elapsed < wait_duration) {
+					// Still waiting
+					cmd_linear_x_ = 0.0;
+					cmd_linear_y_ = 0.0;
+					cmd_angular_ = 0.0;
+					return;
+				} else {
+					// Done waiting
+					waiting_ = false;
+				}
+			}
+
 			// Move to the next waypoint
 			current_waypoint_idx_++;
 			
@@ -513,6 +555,10 @@ public:
     bool isGoalReached() const {
         return goal_reached_;
     }
+
+	bool isWaitState() const {
+		return waiting_;
+	}
     
     // Set the position tolerance
     void setPositionTolerance(double tolerance) {
@@ -556,6 +602,9 @@ private:
     size_t current_waypoint_idx_;
     bool goal_reached_;
     double dt_;
+
+	bool waiting_;
+	double wait_start_time_ = 0.0;
     
     // Command outputs
     double cmd_linear_x_;
@@ -581,7 +630,7 @@ public:
 			zmq_context = new zmq::context_t();
 			zmq_socket = new zmq::socket_t(*zmq_context, zmq::socket_type::sub);
 			
-			zmq_socket->connect("tcp://128.61.21.22:5555");
+			zmq_socket->connect("tcp://143.215.96.245:5555");
 			zmq_socket->set(zmq::sockopt::subscribe, "");
 			std::cout << "Connected to MoCap server" << std::endl;
 
@@ -605,7 +654,7 @@ public:
 		    1.0, 0.05, 0.1,  // X PID gains
 		    1.0, 0.05, 0.1,  // Y PID gains
 		    1.0, 0.0, 0.3,   // Yaw PID gains
-		    0.3, 0.3, 0.2, 0.2);  // Max velocities and tolerances
+		    MAX_LINEAR_VEL, MAX_ANGULAR_VEL, 0.2, 0.2);  // Max velocities and tolerances
 		
 		// Set the sampling time for the controller
 		controller.setTimeStep(dt);
@@ -638,17 +687,80 @@ public:
 
 	void setWaypoints(){
 		std::vector<Eigen::Vector3d> waypoint_pos;
+
+		std::vector<double> wait_time;
 		
 		// Example rectangular path with orientation
-		waypoint_pos.push_back(Eigen::Vector3d(2.0, 0.6, 0));
-		waypoint_pos.push_back(Eigen::Vector3d(4.0, 0.6, 1.57));
-		waypoint_pos.push_back(Eigen::Vector3d(4.0, 1.6, 3.14));
-		waypoint_pos.push_back(Eigen::Vector3d(2.0, 1.6, -1.57));
-		waypoint_pos.push_back(Eigen::Vector3d(2.0, 0.6, 0));
+		// cycle
+		// waypoint_pos.push_back(Eigen::Vector3d(2.0, 0.6, 0));
+		// waypoint_pos.push_back(Eigen::Vector3d(4.0, 0.6, 1.57));
+		// waypoint_pos.push_back(Eigen::Vector3d(4.0, 1.6, 3.14));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.0, 1.6, -1.57));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.0, 0.6, 0));
 
-		for(auto waypoint:waypoint_pos){
-			path.addPoint(waypoint.x(), waypoint.y(), waypoint.z());
+		// waypoint_pos.push_back(Eigen::Vector3d(2.0, 0.6, 1.57));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.0, 2.3, 3.14));
+		// waypoint_pos.push_back(Eigen::Vector3d(-0.8, 2.3, 3.14));
+		// waypoint_pos.push_back(Eigen::Vector3d(-0.8, 1.0, 0));
+		// waypoint_pos.push_back(Eigen::Vector3d(0.7, 1.0, 0));
+		// waypoint_pos.push_back(Eigen::Vector3d(0.7, 0.5, 0));
+		// waypoint_pos.push_back(Eigen::Vector3d(1.2, 0.5, 0));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.0, 0.6, 0));
+
+		// robot 2
+		// waypoint_pos.push_back(Eigen::Vector3d(0.700, 0.529, 0.000));
+		// waypoint_pos.push_back(Eigen::Vector3d(1.400, 0.529, 0.000));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.100, 0.529, 1.571));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.100, 1.057, 0.000));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.800, 1.057, 0.000));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.100, 1.057, -1.571));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.100, 0.529, 3.142));
+		// waypoint_pos.push_back(Eigen::Vector3d(1.400, 0.529, 3.142));
+		// waypoint_pos.push_back(Eigen::Vector3d(0.700, 0.529, 1.571));
+		// waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.057, 1.571));
+		// waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.586, 1.571));
+		// waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.114, 1.571));
+		// waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.643, 0.000));
+		// waypoint_pos.push_back(Eigen::Vector3d(1.400, 2.643, 0.000));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.100, 2.643, 0.000));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.643, -1.571));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.379, -1.571));
+		// waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.114, 0.000));
+		// waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.114, 0.000));
+		// waypoint_pos.push_back(Eigen::Vector3d(4.200, 2.114, 0.000));
+
+		// robot 1
+		waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.643, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.114, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.586, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.057, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.700, 0.529,  0.000)); wait_time.push_back(6.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.057,  1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.586,  1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.114,  1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.643,  0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(1.400, 2.643,  0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.100, 2.643,  0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.643, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.379, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.114,  0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.114,  0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(4.200, 2.114,  0.000)); wait_time.push_back(6.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.114, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.586, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.057,  3.142)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.800, 1.057,  0.000)); wait_time.push_back(2.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.057,  1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.586,  1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.114,  0.000)); wait_time.push_back(0.0);
+		
+		for(int i = 0; i < waypoint_pos.size(); ++i){
+			path.addPoint(waypoint_pos[i].x(), waypoint_pos[i].y(), waypoint_pos[i].z(), wait_time[i]);
 		}
+
+		// for(auto waypoint:waypoint_pos){
+		// 	path.addPoint(waypoint.x(), waypoint.y(), waypoint.z());
+		// }
 
 		controller.setPath(path);
 	}
@@ -913,22 +1025,43 @@ public:
 			
 			// If the goal hasn't been reached, send control commands
 			if (!controller.isGoalReached()) {
-				// Get computed linear and angular velocities
-				// double linear_vel = controller.getLinearVelocity();
-				double angular_vel = controller.getAngularVelocity();
-
-				double vx = controller.getLinearVelocityX();
-				double vy = controller.getLinearVelocityY();
 				
-				// Send control commands to the robot
-				sport_client.Move(vx, vy, angular_vel);
-				
-				if(DEBUG_MODE){
-					std::cout << "PID Control: vx=" << vx << "vy "<<vy <<", w=" << angular_vel << std::endl;
-					std::cout << "Position: " << robot_pose.position.x() << ", " 
-											<< robot_pose.position.y() << ", " 
-											<< robot_pose.position.z() << std::endl;
+				if (controller.isWaitState()){
+					sport_client.StopMove();
 				}
+				else{
+					// Get computed linear and angular velocities
+					// double linear_vel = controller.getLinearVelocity();
+					double angular_vel = controller.getAngularVelocity();
+
+					double vx = controller.getLinearVelocityX();
+					double vy = controller.getLinearVelocityY();
+
+					vx *= 10;
+					vy*= 10;
+					angular_vel *= 10;
+					
+					if(vx > MAX_LINEAR_VEL)	vx = MAX_LINEAR_VEL;
+					if(vx < -MAX_LINEAR_VEL)	vx = -MAX_LINEAR_VEL;
+
+					if(vy > MAX_LINEAR_VEL)	vy = MAX_LINEAR_VEL;
+					if(vy < -MAX_LINEAR_VEL)	vy = -MAX_LINEAR_VEL;
+
+					if(angular_vel > MAX_LINEAR_VEL)	angular_vel = MAX_LINEAR_VEL;
+					if(angular_vel < -MAX_LINEAR_VEL)	angular_vel = -MAX_LINEAR_VEL;
+					std::cout<<"vx: "<<vx<<"vy: "<<vy<<"angular vel:"<<angular_vel<<std::endl;
+					// Send control commands to the robot
+					sport_client.Move(vx, vy, angular_vel);
+					
+					if(DEBUG_MODE){
+						std::cout << "PID Control: vx=" << vx << "vy "<<vy <<", w=" << angular_vel << std::endl;
+						std::cout << "Position: " << robot_pose.position.x() << ", " 
+												<< robot_pose.position.y() << ", " 
+												<< robot_pose.position.z() << std::endl;
+					}
+				}
+
+				
 			} else {
 				// Goal reached, stop moving
 				sport_client.StopMove();
