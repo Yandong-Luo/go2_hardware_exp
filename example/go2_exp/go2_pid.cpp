@@ -1,3 +1,4 @@
+
 /**********************************************************************
  Copyright (c) 2020-2023, Unitree Robotics.Co.Ltd. All rights reserved.
 ***********************************************************************/
@@ -20,8 +21,8 @@ using json = nlohmann::json;
 
 #define DEBUG_MODE true
 
-#define MAX_LINEAR_VEL 0.5
-#define MAX_ANGULAR_VEL 0.5
+#define MAX_LINEAR_VEL 0.3
+#define MAX_ANGULAR_VEL 0.3
 
 using namespace unitree::common;
 
@@ -637,7 +638,7 @@ public:
 			zmq_planner_context = new zmq::context_t();
 			zmq_planner_socket = new zmq::socket_t(*zmq_planner_context, zmq::socket_type::sub);
 			
-			zmq_planner_socket->connect("tcp://128.61.21.180:5556");
+			zmq_planner_socket->connect("tcp://143.215.97.154:5556");
 			zmq_planner_socket->set(zmq::sockopt::subscribe, "");
 			std::cout << "Connected to planner server" << std::endl;
 		} catch (const std::exception& e) {
@@ -651,9 +652,9 @@ public:
 		// Y PID: P=1.0, I=0.05, D=0.1
 		// Yaw PID: P=1.0, I=0.0, D=0.3
 		controller = ThreeDimensionPIDController(
-		    1.0, 0.05, 0.1,  // X PID gains
+		    1.0, 0.2, 0.1,  // X PID gains
 		    1.0, 0.05, 0.1,  // Y PID gains
-		    1.0, 0.0, 0.3,   // Yaw PID gains
+		    3.0, 0.0, 0.3,   // Yaw PID gains
 		    MAX_LINEAR_VEL, MAX_ANGULAR_VEL, 0.2, 0.2);  // Max velocities and tolerances
 		
 		// Set the sampling time for the controller
@@ -730,23 +731,23 @@ public:
 		// waypoint_pos.push_back(Eigen::Vector3d(4.200, 2.114, 0.000));
 
 		// robot 1
-		waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.643, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.114, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.586, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.057, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.700, 0.529,  0.000)); wait_time.push_back(6.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.057,  1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.700, 1.586,  1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.114,  1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.700, 2.643,  0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.643, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.114, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.586, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.057, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.500, 0.529,  0.000)); wait_time.push_back(6.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.057,  1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.586,  1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.114,  1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.643,  0.000)); wait_time.push_back(0.0);
 		waypoint_pos.push_back(Eigen::Vector3d(1.400, 2.643,  0.000)); wait_time.push_back(0.0);
 		waypoint_pos.push_back(Eigen::Vector3d(2.100, 2.643,  0.000)); wait_time.push_back(0.0);
 		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.643, -1.571)); wait_time.push_back(0.0);
 		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.379, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.114,  0.000)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.114,  0.000)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(4.200, 2.114,  0.000)); wait_time.push_back(6.0);
-		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.114, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.379,  0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.379,  0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(4.200, 2.379,  0.000)); wait_time.push_back(6.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.379, -1.571)); wait_time.push_back(0.0);
 		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.586, -1.571)); wait_time.push_back(0.0);
 		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.057,  3.142)); wait_time.push_back(0.0);
 		waypoint_pos.push_back(Eigen::Vector3d(2.800, 1.057,  0.000)); wait_time.push_back(2.0);
@@ -880,37 +881,37 @@ public:
 						}
 					}
 					
-					// Process all obstacles
-					for (auto& [name, data] : robots.items()) {
-						// Skip our robot
-						if (name == "Go2") continue;
+					// // Process all obstacles
+					// for (auto& [name, data] : robots.items()) {
+					// 	// Skip our robot
+					// 	if (name == "Go2" or name == "Go1" or name="Alien1") continue;
 						
-						// Process any object with "obstacle" in the name
-						if (name.find("obstacle") != std::string::npos) {
-							if (data.contains("position") && data.contains("rotation")) {
-								auto& pos = data["position"];
-								auto& rot = data["rotation"];
+					// 	// Process any object with "obstacle" in the name
+					// 	if (name.find("obstacle") != std::string::npos) {
+					// 		if (data.contains("position") && data.contains("rotation")) {
+					// 			auto& pos = data["position"];
+					// 			auto& rot = data["rotation"];
 								
-								// Create new Pose for this obstacle
-								Pose obstacle_pose;
-								obstacle_pose.position = Eigen::Vector3d(
-									pos[0].get<double>(),
-									pos[1].get<double>(),
-									pos[2].get<double>()
-								);
+					// 			// Create new Pose for this obstacle
+					// 			Pose obstacle_pose;
+					// 			obstacle_pose.position = Eigen::Vector3d(
+					// 				pos[0].get<double>(),
+					// 				pos[1].get<double>(),
+					// 				pos[2].get<double>()
+					// 			);
 								
-								obstacle_pose.orientation = Eigen::Quaterniond(
-									rot[3].get<double>(),  // w    
-									rot[0].get<double>(),  // x
-									rot[1].get<double>(),  // y
-									rot[2].get<double>()   // z
-								);
+					// 			obstacle_pose.orientation = Eigen::Quaterniond(
+					// 				rot[3].get<double>(),  // w    
+					// 				rot[0].get<double>(),  // x
+					// 				rot[1].get<double>(),  // y
+					// 				rot[2].get<double>()   // z
+					// 			);
 								
-								// Add to obstacles vector
-								obstacles_pose.push_back(obstacle_pose);
-							}
-						}
-					}
+					// 			// Add to obstacles vector
+					// 			obstacles_pose.push_back(obstacle_pose);
+					// 		}
+					// 	}
+					// }
 					
 					// Record timestamp
 					if (msg_json.contains("timestamp")) {
@@ -961,30 +962,37 @@ public:
 					}
 					
 					// Process each waypoint
-					for (size_t i = 1; i < waypoints_array.size()-2; i++) {
+					for (size_t i = 0; i < waypoints_array.size()-1; i++) {
 
-						// Each waypoint is an array [x, y]
-						if (waypoints_array[i].is_array() && waypoints_array[i].size() >= 2) {
-							double x = waypoints_array[i][0].get<double>();
-							double y = waypoints_array[i][1].get<double>();
+						// // Each waypoint is an array [x, y]
+						// if (waypoints_array[i].is_array() && waypoints_array[i].size() >= 2) {
+						// 	double x = waypoints_array[i][0].get<double>();
+						// 	double y = waypoints_array[i][1].get<double>();
 							
-							// Calculate yaw (heading) if not the last point
-							double yaw = 0.0;
-							if (i < waypoints_array.size() - 1 && waypoints_array[i+1].size() >= 2) {
-								double next_x = waypoints_array[i+1][0].get<double>();
-								double next_y = waypoints_array[i+1][1].get<double>();
-								yaw = std::atan2(next_y - y, next_x - x);
-								if(i == waypoints_array.size()-3)	yaw = 0.0;
-							}
+						// 	// Calculate yaw (heading) if not the last point
+						// 	double yaw = 0.0;
+						// 	if (i < waypoints_array.size() - 1 && waypoints_array[i+1].size() >= 2) {
+						// 		double next_x = waypoints_array[i+1][0].get<double>();
+						// 		double next_y = waypoints_array[i+1][1].get<double>();
+						// 		yaw = std::atan2(next_y - y, next_x - x);
+						// 		if(i == waypoints_array.size()-3)	yaw = 0.0;
+						// 	}
 							
-							// Add to the path
-							path.addPoint(x, y, yaw);
+						// 	// Add to the path
+						// 	path.addPoint(x, y, yaw);
 							
-							if(DEBUG_MODE) {
-								std::cout << "  Waypoint " << i << ": (" << x << ", " << y 
-										<< "), yaw: " << yaw << std::endl;
-							}
-						}
+						// 	if(DEBUG_MODE) {
+						// 		std::cout << "  Waypoint " << i << ": (" << x << ", " << y 
+						// 				<< "), yaw: " << yaw << std::endl;
+						// 	}
+						// }
+
+						path.addPoint(
+							waypoints_array[i][0].get<double>(), 
+							waypoints_array[i][1].get<double>(), 
+							waypoints_array[i][2].get<double>(), 
+							0.0  // Default wait time
+						);
 					}
 					
 					// After processing all waypoints, set the path in the controller
@@ -1019,7 +1027,7 @@ public:
 		{
 		case waypoint_tracking:{
 			updatePoseFromMocap();
-			// updateTargetPointFromPlanner();
+			updateTargetPointFromPlanner();
 			// Use PID controller to compute control commands
 			controller.computeVelocities(robot_pose);
 			
@@ -1037,9 +1045,9 @@ public:
 					double vx = controller.getLinearVelocityX();
 					double vy = controller.getLinearVelocityY();
 
-					vx *= 10;
-					vy*= 10;
-					angular_vel *= 10;
+					// vx *= 10;
+					// vy*= 10;
+					// angular_vel *= 10;
 					
 					if(vx > MAX_LINEAR_VEL)	vx = MAX_LINEAR_VEL;
 					if(vx < -MAX_LINEAR_VEL)	vx = -MAX_LINEAR_VEL;
