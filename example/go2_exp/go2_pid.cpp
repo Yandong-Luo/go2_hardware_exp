@@ -21,8 +21,8 @@ using json = nlohmann::json;
 
 #define DEBUG_MODE true
 
-#define MAX_LINEAR_VEL 0.3
-#define MAX_ANGULAR_VEL 0.3
+#define MAX_LINEAR_VEL 0.6
+#define MAX_ANGULAR_VEL 0.4
 
 using namespace unitree::common;
 
@@ -652,9 +652,9 @@ public:
 		// Y PID: P=1.0, I=0.05, D=0.1
 		// Yaw PID: P=1.0, I=0.0, D=0.3
 		controller = ThreeDimensionPIDController(
-		    1.0, 0.2, 0.1,  // X PID gains
-		    1.0, 0.05, 0.1,  // Y PID gains
-		    3.0, 0.0, 0.3,   // Yaw PID gains
+		    2.0, 0.05, 0.1,  // X PID gains
+		    2.0, 0.05, 0.1,  // Y PID gains
+		    5.0, 0.0, 0.3,   // Yaw PID gains
 		    MAX_LINEAR_VEL, MAX_ANGULAR_VEL, 0.2, 0.2);  // Max velocities and tolerances
 		
 		// Set the sampling time for the controller
@@ -665,7 +665,7 @@ public:
 		updatePoseFromMocap();
 
 		// Set waypoints for testing
-		setWaypoints();
+		// setWaypoints();
 	};
 
 	~Custom(){
@@ -950,19 +950,19 @@ public:
 				json msg_json = json::parse(msg_str);
 				
 				// Check if the message contains waypoints
-				if (msg_json.contains("waypoints") && msg_json["waypoints"].is_array()) {
+				if (msg_json.contains("trajectory") && msg_json["trajectory"].is_array()) {
 					// Clear existing path
 					path.clear();
 					
 					// Access the waypoints array
-					auto& waypoints_array = msg_json["waypoints"];
+					auto& waypoints_array = msg_json["trajectory"];
 					
 					if(DEBUG_MODE) {
 						std::cout << "Found " << waypoints_array.size() << " waypoints" << std::endl;
 					}
 					
 					// Process each waypoint
-					for (size_t i = 0; i < waypoints_array.size()-1; i++) {
+					for (size_t i = 3; i < waypoints_array.size()-1; i++) {
 
 						// // Each waypoint is an array [x, y]
 						// if (waypoints_array[i].is_array() && waypoints_array[i].size() >= 2) {
@@ -985,8 +985,14 @@ public:
 						// 		std::cout << "  Waypoint " << i << ": (" << x << ", " << y 
 						// 				<< "), yaw: " << yaw << std::endl;
 						// 	}
-						// }
-
+						if (i == 3) {
+							std::cout<<"x:"<<waypoints_array[i][0].get<double>()<<std::endl;
+							std::cout<<"y:"<<waypoints_array[i][1].get<double>()<<std::endl;
+							std::cout<<"yaw:"<<waypoints_array[i][2].get<double>()<<std::endl;
+						}
+						// std::cout<<"x:"<<waypoints_array[i][0].get<double>()<<std::endl;
+						// std::cout<<"y:"<<waypoints_array[i][1].get<double>()<<std::endl;
+						// std::cout<<"yaw:"<<waypoints_array[i][2].get<double>()<<std::endl;
 						path.addPoint(
 							waypoints_array[i][0].get<double>(), 
 							waypoints_array[i][1].get<double>(), 
@@ -1045,9 +1051,10 @@ public:
 					double vx = controller.getLinearVelocityX();
 					double vy = controller.getLinearVelocityY();
 
-					// vx *= 10;
-					// vy*= 10;
-					// angular_vel *= 10;
+					std::cout<<"vx: "<<vx<<" vy: "<<vy<<" angular vel: "<<angular_vel<<std::endl;
+					// vx *= 2;
+					// vy*= 2;
+					// angular_vel *= 2;
 					
 					if(vx > MAX_LINEAR_VEL)	vx = MAX_LINEAR_VEL;
 					if(vx < -MAX_LINEAR_VEL)	vx = -MAX_LINEAR_VEL;
