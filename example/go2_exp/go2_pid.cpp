@@ -8,12 +8,20 @@
 #include <unitree/robot/go2/sport/sport_client.hpp>
 #include <unitree/robot/channel/channel_subscriber.hpp>
 #include <unitree/idl/go2/SportModeState_.hpp>
+#include <unitree/robot/go2/video/video_client.hpp>
 
 #include <Eigen/Dense>
 #include <vector>
 #include <zmq.hpp>
 #include <nlohmann/json.hpp> // JSON parsing library
 #include <chrono>
+#include <curl/curl.h>
+#include "base64.hpp"
+
+#include <iostream>
+#include <fstream>
+#include <ctime>
+
 
 using json = nlohmann::json;
 
@@ -1260,6 +1268,83 @@ public:
 	float dt = 0.005;      // Control step length 0.001~0.01
 };
 
+size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+
+std::vector<unsigned char> read_file_binary(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    return std::vector<unsigned char>((std::istreambuf_iterator<char>(file)), {});
+}
+
+void detect_cone(
+    const std::vector<uint8_t>& image_data,
+    int& img_width, int& img_height,
+    std::string& cls, float& confidence,
+    float& x_center, float& y_center,
+    float& box_width, float& box_height
+)
+ {
+    const std::string api_url = "https://serverless.roboflow.com/safety-cones-vfrj2/4?api_key=hQCOUahSPREdfnw1ze9L";
+
+    std::string base64_str = base64::encode_into<std::string>(image_data.begin(), image_data.end());
+    base64_str.erase(std::remove(base64_str.begin(), base64_str.end(), '\n'), base64_str.end());
+    base64_str.erase(std::remove(base64_str.begin(), base64_str.end(), '\r'), base64_str.end());
+
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        std::cerr << "Failed to initialize CURL\n";
+        return;
+    }
+
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+
+    std::string response_string;
+    curl_easy_setopt(curl, CURLOPT_URL, api_url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, base64_str.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, base64_str.size());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_string);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK)
+        std::cerr << "cURL error: " << curl_easy_strerror(res) << "\n";
+    else
+        std::cout << "Detection result:\n" << response_string << std::endl;
+
+		// 解析 response_string 为 JSON 对象
+		json response_json = json::parse(response_string);
+
+		// 提取图像尺寸
+		img_width = response_json["image"]["width"];
+		img_height = response_json["image"]["height"];
+
+		// 提取第一个预测框
+		if (!response_json["predictions"].empty()) {
+			const auto& pred = response_json["predictions"][0];
+
+			x_center = pred["x"];
+			y_center = pred["y"];
+			box_width = pred["width"];
+			box_height = pred["height"];
+			confidence = pred["confidence"];
+			cls = pred["class"];
+
+			std::cout << "Class: " << cls << "\n";
+			std::cout << "Confidence: " << confidence << "\n";
+			std::cout << "Bounding box: center(" << x_center << ", " << y_center 
+					<< "), size(" << box_width << " x " << box_height << ")\n";
+		}
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+}
+
+
 int main(int argc, char **argv)
 {
 	if (argc < 2)
@@ -1271,6 +1356,17 @@ int main(int argc, char **argv)
 	unitree::robot::ChannelFactory::Instance()->Init(0, argv[1]);
 	Custom custom;
 
+	bool ENABLE_CAMERA = true; // Enable camera
+	unitree::robot::go2::VideoClient video_client;
+	std::vector<uint8_t> image_sample;
+	int ret;
+	if(ENABLE_CAMERA){
+		
+		video_client.SetTimeout(1.0f);
+    	video_client.Init();
+		
+	}
+
 	sleep(1); // Wait for 1 second to obtain a stable state
 
 	custom.GetInitState(); // Get initial position
@@ -1278,6 +1374,37 @@ int main(int argc, char **argv)
 
 	while (1)
 	{
+		if(ENABLE_CAMERA){
+			ret = video_client.GetImageSample(image_sample);
+			if(ret == 0){
+				time_t rawtime;
+				struct tm *timeinfo;
+				char buffer[80];
+
+				time(&rawtime);
+				timeinfo = localtime(&rawtime);
+
+				strftime(buffer, sizeof(buffer), "%Y%m%d%H%M%S.jpg", timeinfo);
+				std::string image_name(buffer);
+
+				std::ofstream image_file(image_name, std::ios::binary);
+				if (image_file.is_open()) {
+					
+					// 检测图像
+					int img_width, img_height;
+					std::string cls;
+					float confidence, x_center, y_center, box_width, box_height;
+
+					detect_cone(image_sample, img_width, img_height, cls, confidence, x_center, y_center, box_width, box_height);
+
+					image_file.write(reinterpret_cast<const char*>(image_sample.data()), image_sample.size());
+					image_file.close();
+					std::cout << "Image saved successfully as " << image_name << std::endl;
+				} else {
+					std::cerr << "Error: Failed to save image." << std::endl;
+				}
+			}
+		}
 		sleep(10);
 	}
 	return 0;
