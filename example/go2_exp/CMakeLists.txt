@@ -20,8 +20,8 @@ include_directories(${CURL_INCLUDE_DIRS})
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-# find_package(realsense2 REQUIRED)
-# include_directories(${realsense2_INCLUDE_DIRS})
+find_package(realsense2 REQUIRED)
+include_directories(${realsense2_INCLUDE_DIRS})
 
-target_link_libraries(go2_pid unitree_sdk2 zmq ${EIGEN3_LIBRARIES} ${CURL_LIBRARIES})
-# target_link_libraries(go2_pid unitree_sdk2 zmq ${EIGEN3_LIBRARIES} ${CURL_LIBRARIES} ${realsense2_LIBRARY})
+# target_link_libraries(go2_pid unitree_sdk2 zmq ${EIGEN3_LIBRARIES} ${CURL_LIBRARIES})
+target_link_libraries(go2_pid unitree_sdk2 zmq ${EIGEN3_LIBRARIES} ${CURL_LIBRARIES} ${realsense2_LIBRARY})

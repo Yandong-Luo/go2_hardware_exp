@@ -22,6 +22,7 @@
 #include <fstream>
 #include <ctime>
 
+#include <librealsense2/rs.hpp>
 
 using json = nlohmann::json;
 
@@ -1344,6 +1345,45 @@ void detect_cone(
     curl_easy_cleanup(curl);
 }
 
+float compute_avg_depth(const rs2::depth_frame& depth, float x_center, float y_center, float box_width, float box_height) {
+    int x_start = std::max(0, static_cast<int>(x_center - box_width / 2));
+    int y_start = std::max(0, static_cast<int>(y_center - box_height / 2));
+    int x_end = std::min(depth.get_width() - 1, static_cast<int>(x_center + box_width / 2));
+    int y_end = std::min(depth.get_height() - 1, static_cast<int>(y_center + box_height / 2));
+
+    float depth_sum = 0.0f;
+    int count = 0;
+
+    for (int y = y_start; y <= y_end; ++y) {
+        for (int x = x_start; x <= x_end; ++x) {
+            float d = depth.get_distance(x, y);
+            if (d > 0.1f && d < 10.0f) {
+                depth_sum += d;
+                count++;
+            }
+        }
+    }
+
+    return count > 0 ? (depth_sum / count) : -1.0f;
+}
+
+std::vector<float> pixelToCameraFrame(float x_pix,
+                                      float y_pix,
+                                      float depth_m,
+                                      const rs2_intrinsics& intr)
+{
+    std::vector<float> cam_xyz(3, 0.0f);  // 初始化为 [0, 0, 0]
+
+    if (depth_m <= 0.0f) {
+        return cam_xyz;  // 返回默认无效值
+    }
+
+    cam_xyz[0] = (x_pix - intr.ppx) * depth_m / intr.fx;  // X
+    cam_xyz[1] = (y_pix - intr.ppy) * depth_m / intr.fy;  // Y
+    cam_xyz[2] = depth_m;                                 // Z
+
+    return cam_xyz;
+}
 
 int main(int argc, char **argv)
 {
@@ -1360,11 +1400,32 @@ int main(int argc, char **argv)
 	unitree::robot::go2::VideoClient video_client;
 	std::vector<uint8_t> image_sample;
 	int ret;
+	
+	// realSense camera initialization
+	rs2::context ctx;
+	 // 使用context可以获取到所有连接到当前平台的设备
+ 	rs2::device_list devices = ctx.query_devices();
+
+	rs2::device selected_device; //用来接收要控制的设备
+	// selected_device = devices[selected_device_index]; //根据索引选择设备
+	if (devices.size() == 0) {
+		std::cerr << "No RealSense device connected!" << std::endl;
+		return -1;
+	}
+	rs2::device selected_device = devices.front(); // 选择第一个设备
+
+
+	rs2::pipeline p;
+	rs2::config cfg;
+	cfg.enable_stream(RS2_STREAM_DEPTH, 640, 480, RS2_FORMAT_Z16, 30);
+	// cfg.enable_stream(RS2_STREAM_COLOR, 640, 480, RS2_FORMAT_BGR8, 30);
+	p.start(cfg);
+
+
 	if(ENABLE_CAMERA){
 		
 		video_client.SetTimeout(1.0f);
     	video_client.Init();
-		
 	}
 
 	sleep(1); // Wait for 1 second to obtain a stable state
@@ -1396,6 +1457,30 @@ int main(int argc, char **argv)
 					float confidence, x_center, y_center, box_width, box_height;
 
 					detect_cone(image_sample, img_width, img_height, cls, confidence, x_center, y_center, box_width, box_height);
+
+					rs2::frameset frames = p.wait_for_frames();  // 等待一帧
+					rs2::depth_frame depth = frames.get_depth_frame();  // 获取深度帧
+
+					float avg_depth = compute_avg_depth(depth, x_center, y_center, box_width, box_height);
+					if (avg_depth > 0)
+						std::cout << "Average depth in detection box: " << avg_depth << " meters" << std::endl;
+					else
+						std::cout << "No valid depth values in detection box." << std::endl;
+					
+					if (avg_depth < 1.0f)
+						std::cout << "Cone is very close, consider stopping or turning." << std::endl;
+
+					// rs2::video_stream_profile depth_profile = depth.get_profile().as<rs2::video_stream_profile>();
+					// rs2_intrinsics intrinsics = depth_profile.get_intrinsics();
+					// std::cout << "fx: " << intrinsics.fx << ", fy: " << intrinsics.fy << std::endl;
+
+					const rs2_intrinsics intr = depth.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
+					std::vector<float> cam_point = pixelToCameraFrame(x_center, y_center, avg_depth, intr);
+
+					std::cout << "3D camera coordinates: [" << cam_point[0]
+							<< ", " << cam_point[1]
+							<< ", " << cam_point[2] << "] meters" << std::endl;
+
 
 					image_file.write(reinterpret_cast<const char*>(image_sample.data()), image_sample.size());
 					image_file.close();
