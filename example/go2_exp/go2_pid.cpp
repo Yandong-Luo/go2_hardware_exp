@@ -8,21 +8,23 @@
 #include <unitree/robot/go2/sport/sport_client.hpp>
 #include <unitree/robot/channel/channel_subscriber.hpp>
 #include <unitree/idl/go2/SportModeState_.hpp>
-#include <unitree/robot/go2/video/video_client.hpp>
 
 #include <Eigen/Dense>
 #include <vector>
 #include <zmq.hpp>
 #include <nlohmann/json.hpp> // JSON parsing library
 #include <chrono>
+
 #include <curl/curl.h>
 #include "base64.hpp"
-
+#include <opencv2/opencv.hpp>
+#include <unitree/robot/go2/video/video_client.hpp>
 #include <iostream>
 #include <fstream>
 #include <ctime>
-
 #include <librealsense2/rs.hpp>
+
+// #include <mutex>
 
 using json = nlohmann::json;
 
@@ -31,7 +33,7 @@ using json = nlohmann::json;
 #define DEBUG_MODE true
 
 #define MAX_LINEAR_VEL 0.6
-#define MAX_ANGULAR_VEL 0.4
+#define MAX_ANGULAR_VEL 1.0
 
 using namespace unitree::common;
 
@@ -663,7 +665,7 @@ public:
 		controller = ThreeDimensionPIDController(
 		    2.0, 0.05, 0.1,  // X PID gains
 		    2.0, 0.05, 0.1,  // Y PID gains
-		    5.0, 0.0, 0.3,   // Yaw PID gains
+		    10.0, 0.0, 0.3,   // Yaw PID gains
 		    MAX_LINEAR_VEL, MAX_ANGULAR_VEL, 0.2, 0.2);  // Max velocities and tolerances
 		
 		// Set the sampling time for the controller
@@ -671,7 +673,7 @@ public:
 
 		// Wait a moment to get initial pose
 		sleep(1);
-		updatePoseFromMocap();
+		// updatePoseFromMocap();
 
 		// Set waypoints for testing
 		// setWaypoints();
@@ -844,7 +846,10 @@ public:
         }
     }
 
-	void updatePoseFromMocap() {
+	void updatePoseFromMocap(float& head_x, float& head_y, float& head_yaw) {
+		// float head_x = 0.0f;
+		// float head_y = 0.0f;
+		// float head_yaw = 0.0f;
 		try {
 			zmq::message_t message;
 			auto result = zmq_socket->recv(message, zmq::recv_flags::dontwait);
@@ -855,11 +860,21 @@ public:
 				if(DEBUG_MODE) {
 					std::cout << "Received MoCap message" << std::endl;
 				}
-	
+				std::cout << "MoCap message: " << msg_str << std::endl;
 				json msg_json = json::parse(msg_str);
 				
 				// Clear obstacles vector to refresh with new data
 				obstacles_pose.clear();
+
+				if (msg_json.contains("camera_positions")){
+					auto& camera_xy = msg_json["camera_positions"];
+
+					if (camera_xy.contains("Go2_head")){
+						auto& head_pos = camera_xy["Go2_head"];
+						head_x = head_pos[0].get<float>();
+						head_y = head_pos[1].get<float>();
+					}
+				}
 				
 				if (msg_json.contains("robots")) {
 					auto& robots = msg_json["robots"];
@@ -887,6 +902,7 @@ public:
 								rot[2].get<double>()   // z
 							);
 							robot_pose.yaw = yaw;
+							head_yaw = yaw;
 						}
 					}
 					
@@ -1041,7 +1057,7 @@ public:
 		switch (TEST_MODE)
 		{
 		case waypoint_tracking:{
-			updatePoseFromMocap();
+			updatePoseFromMocap(robot_head_x, robot_head_y, robot_yaw);
 			updateTargetPointFromPlanner();
 			// Use PID controller to compute control commands
 			controller.computeVelocities(robot_pose);
@@ -1240,6 +1256,20 @@ public:
 		std::cout << "initial position: x0: " << px0 << ", y0: " << py0 << ", yaw0: " << yaw0 << std::endl;
 	};
 
+	// void GetRobotHeadAndYaw(){
+	// 	return robot_head_x, robot_head_y, robot_yaw;
+	// }
+
+	float GetRobotHeadX(){
+		return robot_head_x;
+	}
+	float GetRobotHeadY(){
+		return robot_head_y;
+	}
+	float GetRobotYaw(){
+		return robot_yaw;
+	}
+
 	void HighStateHandler(const void *message)
 	{
 		state = *(unitree_go::msg::dds_::SportModeState_ *)message;
@@ -1267,6 +1297,9 @@ public:
 	double ct = 0;         // Running time
 	int flag = 0;          // Special action execution flag
 	float dt = 0.005;      // Control step length 0.001~0.01
+
+	float robot_yaw = 0.0; // Robot yaw angle
+	float robot_head_x = 0.0, robot_head_y = 0.0; // Robot head position in camera frame
 };
 
 size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
@@ -1280,70 +1313,72 @@ std::vector<unsigned char> read_file_binary(const std::string& path) {
     return std::vector<unsigned char>((std::istreambuf_iterator<char>(file)), {});
 }
 
-void detect_cone(
-    const std::vector<uint8_t>& image_data,
-    int& img_width, int& img_height,
-    std::string& cls, float& confidence,
-    float& x_center, float& y_center,
-    float& box_width, float& box_height
-)
- {
-    const std::string api_url = "https://serverless.roboflow.com/safety-cones-vfrj2/4?api_key=hQCOUahSPREdfnw1ze9L";
+// bool detect_cone(
+//     const std::vector<uint8_t>& image_data,
+//     int& img_width, int& img_height,
+//     std::string& cls, float& confidence,
+//     float& x_center, float& y_center,
+//     float& box_width, float& box_height
+// )
+//  {
+//     const std::string api_url = "https://serverless.roboflow.com/safety-cones-vfrj2/4?api_key=hQCOUahSPREdfnw1ze9L";
 
-    std::string base64_str = base64::encode_into<std::string>(image_data.begin(), image_data.end());
-    base64_str.erase(std::remove(base64_str.begin(), base64_str.end(), '\n'), base64_str.end());
-    base64_str.erase(std::remove(base64_str.begin(), base64_str.end(), '\r'), base64_str.end());
+//     std::string base64_str = base64::encode_into<std::string>(image_data.begin(), image_data.end());
+//     base64_str.erase(std::remove(base64_str.begin(), base64_str.end(), '\n'), base64_str.end());
+//     base64_str.erase(std::remove(base64_str.begin(), base64_str.end(), '\r'), base64_str.end());
 
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        std::cerr << "Failed to initialize CURL\n";
-        return;
-    }
+//     CURL* curl = curl_easy_init();
+//     if (!curl) {
+//         std::cerr << "Failed to initialize CURL\n";
+//         return false;
+//     }
 
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+//     struct curl_slist* headers = nullptr;
+//     headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
 
-    std::string response_string;
-    curl_easy_setopt(curl, CURLOPT_URL, api_url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, base64_str.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, base64_str.size());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_string);
+//     std::string response_string;
+//     curl_easy_setopt(curl, CURLOPT_URL, api_url.c_str());
+//     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+//     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, base64_str.c_str());
+//     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, base64_str.size());
+//     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+//     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_string);
 
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK)
-        std::cerr << "cURL error: " << curl_easy_strerror(res) << "\n";
-    else
-        std::cout << "Detection result:\n" << response_string << std::endl;
+//     CURLcode res = curl_easy_perform(curl);
+//     if (res != CURLE_OK)
+//         std::cerr << "cURL error: " << curl_easy_strerror(res) << "\n";
+//     else
+//         std::cout << "Detection result:\n" << response_string << std::endl;
 
-		// 解析 response_string 为 JSON 对象
-		json response_json = json::parse(response_string);
+// 		// 解析 response_string 为 JSON 对象
+// 		json response_json = json::parse(response_string);
 
-		// 提取图像尺寸
-		img_width = response_json["image"]["width"];
-		img_height = response_json["image"]["height"];
+// 		// 提取图像尺寸
+// 		img_width = response_json["image"]["width"];
+// 		img_height = response_json["image"]["height"];
 
-		// 提取第一个预测框
-		if (!response_json["predictions"].empty()) {
-			const auto& pred = response_json["predictions"][0];
+// 		// 提取第一个预测框
+// 		if (!response_json["predictions"].empty()) {
+// 			const auto& pred = response_json["predictions"][0];
 
-			x_center = pred["x"];
-			y_center = pred["y"];
-			box_width = pred["width"];
-			box_height = pred["height"];
-			confidence = pred["confidence"];
-			cls = pred["class"];
+// 			x_center = pred["x"];
+// 			y_center = pred["y"];
+// 			box_width = pred["width"];
+// 			box_height = pred["height"];
+// 			confidence = pred["confidence"];
+// 			cls = pred["class"];
 
-			std::cout << "Class: " << cls << "\n";
-			std::cout << "Confidence: " << confidence << "\n";
-			std::cout << "Bounding box: center(" << x_center << ", " << y_center 
-					<< "), size(" << box_width << " x " << box_height << ")\n";
-		}
+// 			std::cout << "Class: " << cls << "\n";
+// 			std::cout << "Confidence: " << confidence << "\n";
+// 			std::cout << "Bounding box: center(" << x_center << ", " << y_center 
+// 					<< "), size(" << box_width << " x " << box_height << ")\n";
+// 		}
 
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-}
+//     curl_slist_free_all(headers);
+//     curl_easy_cleanup(curl);
+
+// 	return (res == CURLE_OK);
+// }
 
 float compute_avg_depth(const rs2::depth_frame& depth, float x_center, float y_center, float box_width, float box_height) {
     int x_start = std::max(0, static_cast<int>(x_center - box_width / 2));
@@ -1367,6 +1402,109 @@ float compute_avg_depth(const rs2::depth_frame& depth, float x_center, float y_c
     return count > 0 ? (depth_sum / count) : -1.0f;
 }
 
+bool detect_cone(
+    const std::vector<uint8_t>& image_data,
+    int& img_width, int& img_height,
+    std::string& cls, float& confidence,
+    float& x_center, float& y_center,
+    float& box_width, float& box_height
+)
+{
+    const std::string api_url = "https://serverless.roboflow.com/safety-cones-vfrj2/4?api_key=hQCOUahSPREdfnw1ze9L";
+
+    std::string base64_str = base64::encode_into<std::string>(image_data.begin(), image_data.end());
+    base64_str.erase(std::remove(base64_str.begin(), base64_str.end(), '\n'), base64_str.end());
+    base64_str.erase(std::remove(base64_str.begin(), base64_str.end(), '\r'), base64_str.end());
+
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        std::cerr << "Failed to initialize CURL\n";
+        return false;
+    }
+
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+
+    std::string response_string;
+    curl_easy_setopt(curl, CURLOPT_URL, api_url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, base64_str.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, base64_str.size());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_string);
+    
+    // 添加这些选项来修复 HTTP/2 问题
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);  // 强制使用 HTTP/1.1
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);  // 30秒超时
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);  // 跟随重定向
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // 如果有SSL问题，可以临时禁用
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "curl/7.68.0");  // 设置用户代理
+
+    CURLcode res = curl_easy_perform(curl);
+    
+    // 改进错误处理
+    if (res != CURLE_OK) {
+        std::cerr << "cURL error: " << curl_easy_strerror(res) << std::endl;
+        std::cerr << "Response string length: " << response_string.length() << std::endl;
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return false;  // 返回 false 表示检测失败
+    }
+
+    // 检查响应是否为空
+    if (response_string.empty()) {
+        std::cerr << "Empty response from server" << std::endl;
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return false;
+    }
+
+    std::cout << "Detection result:\n" << response_string << std::endl;
+
+    try {
+        // 解析 response_string 为 JSON 对象
+        json response_json = json::parse(response_string);
+
+        // 提取图像尺寸
+        if (response_json.contains("image")) {
+            img_width = response_json["image"]["width"];
+            img_height = response_json["image"]["height"];
+        }
+
+        // 提取第一个预测框
+        if (response_json.contains("predictions") && !response_json["predictions"].empty()) {
+            const auto& pred = response_json["predictions"][0];
+
+            x_center = pred["x"];
+            y_center = pred["y"];
+            box_width = pred["width"];
+            box_height = pred["height"];
+            confidence = pred["confidence"];
+            cls = pred["class"];
+
+            std::cout << "Class: " << cls << "\n";
+            std::cout << "Confidence: " << confidence << "\n";
+            std::cout << "Bounding box: center(" << x_center << ", " << y_center 
+                      << "), size(" << box_width << " x " << box_height << ")\n";
+        } else {
+            std::cout << "No predictions found in response" << std::endl;
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return false;  // 没有检测到对象
+        }
+    } catch (const json::parse_error& e) {
+        std::cerr << "JSON parse error: " << e.what() << std::endl;
+        std::cerr << "Response content: " << response_string << std::endl;
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return false;
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return true;  // 成功检测
+}
+
 std::vector<float> pixelToCameraFrame(float x_pix,
                                       float y_pix,
                                       float depth_m,
@@ -1385,6 +1523,26 @@ std::vector<float> pixelToCameraFrame(float x_pix,
     return cam_xyz;
 }
 
+void send_cone_detected(zmq::socket_t& pub_socket, json coord_msg) {
+    // if (detected) {
+    //     std::string msg = "1";  // "1" means cone detected
+    //     zmq::message_t zmq_msg(msg.size());
+    //     memcpy(zmq_msg.data(), msg.c_str(), msg.size());
+    //     pub_socket.send(zmq_msg, zmq::send_flags::none);
+
+    //     std::cout << "Sent ZMQ message: Cone detected\n";
+    // }
+
+	std::string msg = coord_msg.dump();
+	zmq::message_t zmq_msg(msg.size());
+	memcpy(zmq_msg.data(), msg.c_str(), msg.size());
+	pub_socket.send(zmq_msg, zmq::send_flags::none);
+
+	std::cout << "Sent ZMQ message: " << msg << std::endl;
+}
+
+
+
 int main(int argc, char **argv)
 {
 	if (argc < 2)
@@ -1396,101 +1554,257 @@ int main(int argc, char **argv)
 	unitree::robot::ChannelFactory::Instance()->Init(0, argv[1]);
 	Custom custom;
 
-	bool ENABLE_CAMERA = true; // Enable camera
-	unitree::robot::go2::VideoClient video_client;
-	std::vector<uint8_t> image_sample;
-	int ret;
-	
-	// realSense camera initialization
-	rs2::context ctx;
-	 // 使用context可以获取到所有连接到当前平台的设备
- 	rs2::device_list devices = ctx.query_devices();
-
-	rs2::device selected_device; //用来接收要控制的设备
-	// selected_device = devices[selected_device_index]; //根据索引选择设备
-	if (devices.size() == 0) {
-		std::cerr << "No RealSense device connected!" << std::endl;
-		return -1;
-	}
-	rs2::device selected_device = devices.front(); // 选择第一个设备
-
-
-	rs2::pipeline p;
-	rs2::config cfg;
-	cfg.enable_stream(RS2_STREAM_DEPTH, 640, 480, RS2_FORMAT_Z16, 30);
-	// cfg.enable_stream(RS2_STREAM_COLOR, 640, 480, RS2_FORMAT_BGR8, 30);
-	p.start(cfg);
-
-
-	if(ENABLE_CAMERA){
-		
-		video_client.SetTimeout(1.0f);
-    	video_client.Init();
-	}
-
 	sleep(1); // Wait for 1 second to obtain a stable state
 
 	custom.GetInitState(); // Get initial position
 	unitree::common::ThreadPtr threadPtr = unitree::common::CreateRecurrentThread(custom.dt * 1000000, std::bind(&Custom::RobotControl, &custom));
 
+	// // Initialize video client for Go2 robot
+	// unitree::robot::go2::VideoClient video_client;
+
+	// /*
+    //  * Set request timeout 1.0s
+    //  */
+    // video_client.SetTimeout(1.0f);
+    // video_client.Init();
+
+	// 初始化 RealSense 相机
+    rs2::pipeline pipeline;
+    rs2::config cfg;
+
+    cfg.enable_stream(RS2_STREAM_COLOR, 640, 480, RS2_FORMAT_BGR8, 30);
+    cfg.enable_stream(RS2_STREAM_DEPTH, 640, 480, RS2_FORMAT_Z16, 30);
+
+    pipeline.start(cfg);
+
+	// std::vector<uint8_t> image_sample;
+    // int ret;
+
+	// double g_cam_yaw = 0.0;
+	// std::mutex g_cam_yaw_mutex;
+
+	zmq::context_t pub_context;
+    zmq::socket_t pub_socket(pub_context, zmq::socket_type::pub);
+    pub_socket.bind("tcp://*:5557");
+
+	// while (1)
+	// {	
+	// 	// double cam_yaw = custom.robot_pose.yaw;  // 直接从custom对象获取
+        
+    //     // 你也可以获取机器人的位置
+    //     // double cam_x = custom.Get.position.x();
+    //     // double cam_y = custom.robot_pose.position.y();
+	// 	// float cam_x, cam_y, cam_yaw = GetRobotHeadAndYaw();
+
+	// 	float cam_x = custom.GetRobotHeadX();
+	// 	float cam_y = custom.GetRobotHeadY();
+	// 	float cam_yaw = custom.GetRobotYaw();
+
+	// 	// 获取一帧图像
+    //     rs2::frameset frames = pipeline.wait_for_frames();
+    //     rs2::video_frame color_frame = frames.get_color_frame();
+    //     rs2::depth_frame depth_frame = frames.get_depth_frame();
+
+    //     // 将color_frame转换为OpenCV格式
+    //     cv::Mat rgb_image(cv::Size(640, 480), CV_8UC3, (void*)color_frame.get_data(), cv::Mat::AUTO_STEP);
+
+    //     // 编码为 JPEG 二进制数据
+    //     std::vector<uchar> image_buffer;
+    //     cv::imencode(".jpg", rgb_image, image_buffer);
+
+    //     // 检测安全锥
+    //     int img_width, img_height;
+    //     std::string cls;
+    //     float confidence, x_center, y_center, box_width, box_height;
+
+    //     detect_cone(image_buffer, img_width, img_height, cls, confidence, x_center, y_center, box_width, box_height);
+
+    //     // 计算平均深度
+    //     float avg_depth = compute_avg_depth(depth_frame, x_center, y_center, box_width, box_height);
+    //     if (avg_depth > 0)
+    //         std::cout << "Average depth in detection box: " << avg_depth << " meters" << std::endl;
+    //     else
+    //         std::cout << "No valid depth values in detection box." << std::endl;
+
+    //     // if (avg_depth < 1.0f)
+    //     //     std::cout << "Cone is very close, consider stopping or turning." << std::endl;
+
+    //     // 获取相机内参并投影到相机坐标
+    //     const rs2_intrinsics intr = depth_frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
+    //     std::vector<float> cam_point = pixelToCameraFrame(x_center, y_center, avg_depth, intr);
+
+    //     std::cout << "3D camera coordinates: [" << cam_point[0]
+    //               << ", " << cam_point[1]
+    //               << ", " << cam_point[2] << "] meters" << std::endl;
+
+	// 	Eigen::Matrix2d R;
+	// 	R << std::cos(cam_yaw), -std::sin(cam_yaw),
+	// 		std::sin(cam_yaw),  std::cos(cam_yaw);
+
+	// 	Eigen::Vector2d t(cam_x, cam_y);
+		
+	// 	// Eigen::Vector2d pt_cam_2d(cam_point[0], cam_point[1]);  // 只转换 x, y
+	// 	Eigen::Vector2d pt_cam_2d(cam_point[2], cam_point[0]);
+
+	// 	Eigen::Vector2d pt_global = R * pt_cam_2d + t;
+
+	// 	std::cout << "Global 2D point: [" << pt_global.x() << ", " << pt_global.y() << "]" << std::endl;
+
+	// 	// 发送全局坐标
+    //     if (!cls.empty()) {  // 只在检测到锥形物时发送
+    //         json coord_msg;
+    //         coord_msg["x"] = pt_global.x();
+    //         coord_msg["y"] = pt_global.y();
+    //         // coord_msg["timestamp"] = std::chrono::duration_cast<std::chrono::milliseconds>(
+    //         //     std::chrono::steady_clock::now().time_since_epoch()).count();
+            
+    //         std::string msg_str = coord_msg.dump();
+    //         zmq::message_t zmq_msg(msg_str.size());
+    //         memcpy(zmq_msg.data(), msg_str.c_str(), msg_str.size());
+    //         pub_socket.send(zmq_msg, zmq::send_flags::dontwait);
+            
+    //         std::cout << "Sent coordinates: " << msg_str << std::endl;
+    //     }
+
+    //     // 在图像上画框
+    //     if (!cls.empty()) {
+    //         int x = static_cast<int>(x_center - box_width / 2);
+    //         int y = static_cast<int>(y_center - box_height / 2);
+    //         int w = static_cast<int>(box_width);
+    //         int h = static_cast<int>(box_height);
+
+    //         cv::rectangle(rgb_image, cv::Rect(x, y, w, h), cv::Scalar(0, 255, 0), 2);
+    //         cv::putText(rgb_image, cls + " Depth:" + std::to_string(avg_depth) + "m",
+    //                     cv::Point(x, y - 10), cv::FONT_HERSHEY_SIMPLEX,
+    //                     0.5, cv::Scalar(0, 255, 0), 1);
+
+    //     }
+
+    //     // 保存图像
+    //     time_t rawtime;
+    //     struct tm *timeinfo;
+    //     char filename[80];
+    //     time(&rawtime);
+    //     timeinfo = localtime(&rawtime);
+    //     strftime(filename, sizeof(filename), "%Y%m%d%H%M%S.jpg", timeinfo);
+    //     if (!cv::imwrite(filename, rgb_image)) {
+    //         std::cerr << "Error: Failed to save image." << std::endl;
+    //     } else {
+    //         std::cout << "Image saved as " << filename << std::endl;
+    //     }
+		
+	// 	sleep(10);
+	// }
+
 	while (1)
-	{
-		if(ENABLE_CAMERA){
-			ret = video_client.GetImageSample(image_sample);
-			if(ret == 0){
-				time_t rawtime;
-				struct tm *timeinfo;
-				char buffer[80];
+    {    
+        float cam_x = custom.GetRobotHeadX();
+        float cam_y = custom.GetRobotHeadY();
+        float cam_yaw = custom.GetRobotYaw();
 
-				time(&rawtime);
-				timeinfo = localtime(&rawtime);
+        // 获取一帧图像
+        rs2::frameset frames = pipeline.wait_for_frames();
+        rs2::video_frame color_frame = frames.get_color_frame();
+        rs2::depth_frame depth_frame = frames.get_depth_frame();
 
-				strftime(buffer, sizeof(buffer), "%Y%m%d%H%M%S.jpg", timeinfo);
-				std::string image_name(buffer);
+        // 将color_frame转换为OpenCV格式
+        cv::Mat rgb_image(cv::Size(640, 480), CV_8UC3, (void*)color_frame.get_data(), cv::Mat::AUTO_STEP);
 
-				std::ofstream image_file(image_name, std::ios::binary);
-				if (image_file.is_open()) {
-					
-					// 检测图像
-					int img_width, img_height;
-					std::string cls;
-					float confidence, x_center, y_center, box_width, box_height;
+        // 编码为 JPEG 二进制数据
+        std::vector<uchar> image_buffer;
+        cv::imencode(".jpg", rgb_image, image_buffer);
 
-					detect_cone(image_sample, img_width, img_height, cls, confidence, x_center, y_center, box_width, box_height);
+        // 检测安全锥
+        int img_width, img_height;
+        std::string cls;
+        float confidence, x_center, y_center, box_width, box_height;
 
-					rs2::frameset frames = p.wait_for_frames();  // 等待一帧
-					rs2::depth_frame depth = frames.get_depth_frame();  // 获取深度帧
+        // 添加检测结果检查
+        bool detection_success = detect_cone(image_buffer, img_width, img_height, cls, confidence, x_center, y_center, box_width, box_height);
 
-					float avg_depth = compute_avg_depth(depth, x_center, y_center, box_width, box_height);
-					if (avg_depth > 0)
-						std::cout << "Average depth in detection box: " << avg_depth << " meters" << std::endl;
-					else
-						std::cout << "No valid depth values in detection box." << std::endl;
-					
-					if (avg_depth < 1.0f)
-						std::cout << "Cone is very close, consider stopping or turning." << std::endl;
+        if (detection_success && !cls.empty()) {
+            // 计算平均深度
+            float avg_depth = compute_avg_depth(depth_frame, x_center, y_center, box_width, box_height);
+            if (avg_depth > 0) {
+                std::cout << "Average depth in detection box: " << avg_depth << " meters" << std::endl;
 
-					// rs2::video_stream_profile depth_profile = depth.get_profile().as<rs2::video_stream_profile>();
-					// rs2_intrinsics intrinsics = depth_profile.get_intrinsics();
-					// std::cout << "fx: " << intrinsics.fx << ", fy: " << intrinsics.fy << std::endl;
+                // 获取相机内参并投影到相机坐标
+                const rs2_intrinsics intr = depth_frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
+                std::vector<float> cam_point = pixelToCameraFrame(x_center, y_center, avg_depth, intr);
 
-					const rs2_intrinsics intr = depth.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
-					std::vector<float> cam_point = pixelToCameraFrame(x_center, y_center, avg_depth, intr);
+                std::cout << "3D camera coordinates: [" << cam_point[0]
+                          << ", " << cam_point[1]
+                          << ", " << cam_point[2] << "] meters" << std::endl;
 
-					std::cout << "3D camera coordinates: [" << cam_point[0]
-							<< ", " << cam_point[1]
-							<< ", " << cam_point[2] << "] meters" << std::endl;
+                // 坐标转换
+                Eigen::Matrix2d R;
+                R << std::cos(cam_yaw), -std::sin(cam_yaw),
+                     std::sin(cam_yaw),  std::cos(cam_yaw);
 
+                Eigen::Vector2d t(cam_x, cam_y);
+                Eigen::Vector2d pt_cam_2d(cam_point[2], -cam_point[0]);
+                Eigen::Vector2d pt_global = R * pt_cam_2d + t;
 
-					image_file.write(reinterpret_cast<const char*>(image_sample.data()), image_sample.size());
-					image_file.close();
-					std::cout << "Image saved successfully as " << image_name << std::endl;
-				} else {
-					std::cerr << "Error: Failed to save image." << std::endl;
-				}
-			}
-		}
-		sleep(10);
-	}
+                std::cout << "Global 2D point: [" << pt_global.x() << ", " << pt_global.y() << "]" << std::endl;
+
+                // 发送全局坐标
+                json coord_msg;
+                coord_msg["x"] = pt_global.x();
+                coord_msg["y"] = pt_global.y();
+                coord_msg["detected"] = true;
+
+				send_cone_detected(pub_socket, coord_msg);
+                
+                // std::string msg_str = coord_msg.dump();
+                // zmq::message_t zmq_msg(msg_str.size());
+                // memcpy(zmq_msg.data(), msg_str.c_str(), msg_str.size());
+                // pub_socket.send(zmq_msg, zmq::send_flags::dontwait);
+                
+                // std::cout << "Sent coordinates: " << msg_str << std::endl;
+
+                // 在图像上画框
+                int x = static_cast<int>(x_center - box_width / 2);
+                int y = static_cast<int>(y_center - box_height / 2);
+                int w = static_cast<int>(box_width);
+                int h = static_cast<int>(box_height);
+
+                cv::rectangle(rgb_image, cv::Rect(x, y, w, h), cv::Scalar(0, 255, 0), 2);
+                cv::putText(rgb_image, cls + " Depth:" + std::to_string(avg_depth) + "m",
+                            cv::Point(x, y - 10), cv::FONT_HERSHEY_SIMPLEX,
+                            0.5, cv::Scalar(0, 255, 0), 1);
+            } else {
+                std::cout << "No valid depth values in detection box." << std::endl;
+            }
+        } 
+		else {
+            std::cout << "No cone detected or detection failed" << std::endl;
+            
+            // 发送"未检测到"消息
+
+			
+            // json coord_msg;
+            // coord_msg["detected"] = false;
+            
+            // std::string msg_str = coord_msg.dump();
+            // zmq::message_t zmq_msg(msg_str.size());
+            // memcpy(zmq_msg.data(), msg_str.c_str(), msg_str.size());
+            // pub_socket.send(zmq_msg, zmq::send_flags::dontwait);
+        }
+
+        // 保存图像
+        // time_t rawtime;
+        // struct tm *timeinfo;
+        // char filename[80];
+        // time(&rawtime);
+        // timeinfo = localtime(&rawtime);
+        // strftime(filename, sizeof(filename), "%Y%m%d%H%M%S.jpg", timeinfo);
+        // if (!cv::imwrite(filename, rgb_image)) {
+        //     std::cerr << "Error: Failed to save image." << std::endl;
+        // } else {
+        //     std::cout << "Image saved as " << filename << std::endl;
+        // }
+        
+        sleep(0.1);
+    }
 	return 0;
 }
