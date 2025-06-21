@@ -642,7 +642,7 @@ public:
 			zmq_context = new zmq::context_t();
 			zmq_socket = new zmq::socket_t(*zmq_context, zmq::socket_type::sub);
 			
-			zmq_socket->connect("tcp://143.215.96.245:5555");
+			zmq_socket->connect("tcp://143.215.104.42:5555");
 			zmq_socket->set(zmq::sockopt::subscribe, "");
 			std::cout << "Connected to MoCap server" << std::endl;
 
@@ -676,7 +676,7 @@ public:
 		// updatePoseFromMocap();
 
 		// Set waypoints for testing
-		// setWaypoints();
+		setWaypoints();
 	};
 
 	~Custom(){
@@ -742,29 +742,69 @@ public:
 		// waypoint_pos.push_back(Eigen::Vector3d(4.200, 2.114, 0.000));
 
 		// robot 1
-		waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.643, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.114, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.586, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.057, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.500, 0.529,  0.000)); wait_time.push_back(6.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.057,  1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.586,  1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.114,  1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.643,  0.000)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(1.400, 2.643,  0.000)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(2.100, 2.643,  0.000)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.643, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.379, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.379,  0.000)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.379,  0.000)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(4.200, 2.379,  0.000)); wait_time.push_back(6.0);
-		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.379, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.586, -1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.057,  3.142)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(2.800, 1.057,  0.000)); wait_time.push_back(2.0);
-		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.057,  1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.586,  1.571)); wait_time.push_back(0.0);
-		waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.114,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.643, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.114, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.586, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.057, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.500, 0.529,  0.000)); wait_time.push_back(6.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.057,  1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.500, 1.586,  1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.114,  1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.500, 2.643,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(1.400, 2.643,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(2.100, 2.643,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.643, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.379, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(2.800, 2.379,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.379,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(4.200, 2.379,  0.000)); wait_time.push_back(6.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.379, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.586, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.057,  3.142)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(2.800, 1.057,  0.000)); wait_time.push_back(2.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.057,  1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.500, 1.586,  1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.500, 2.114,  0.000)); wait_time.push_back(0.0);
+
+		// robot 1
+		// waypoint_pos.push_back(Eigen::Vector3d(0.4, 2.8, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.4, 2.0, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.4, 1.2, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(0.4, 0.4,  0.000)); wait_time.push_back(3.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(1.3, 0.4,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(2.1, 0.4,  1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(2.1, 1.2,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.0, 1.2,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.9, 1.2, -1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(3.9, 0.4,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(4.7, 0.4,  0.000)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(5.6, 0.4,  1.571)); wait_time.push_back(0.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(5.6, 1.2,  1.571)); wait_time.push_back(3.0);
+		// waypoint_pos.push_back(Eigen::Vector3d(5.6, 0.4, 1.571)); wait_time.push_back(10.0);
+
+		// robot 2
+		waypoint_pos.push_back(Eigen::Vector3d(0.4, 0.4, 0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(1.3, 0.4, 0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.1, 0.4, 1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.1, 1.2, 0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.0, 1.2, 0.000)); wait_time.push_back(3.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.9, 1.2, 1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.9, 2.0, 1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.9, 2.8, 3.142)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.0, 2.8, 3.142)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.1, 2.8, 3.142)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(1.3, 2.8, 3.142)); wait_time.push_back(1.0);
+		waypoint_pos.push_back(Eigen::Vector3d(0.4, 2.8, 3.142)); wait_time.push_back(3.0);
+		waypoint_pos.push_back(Eigen::Vector3d(1.3, 2.8, 0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(2.1, 2.8, 0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.0, 2.8, 0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(3.9, 2.8, 0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(4.7, 2.8, 0.000)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(5.6, 2.8, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(5.6, 2.0, -1.571)); wait_time.push_back(0.0);
+		waypoint_pos.push_back(Eigen::Vector3d(5.6, 1.4, -1.571)); wait_time.push_back(3.0);
+
+
 		
 		for(int i = 0; i < waypoint_pos.size(); ++i){
 			path.addPoint(waypoint_pos[i].x(), waypoint_pos[i].y(), waypoint_pos[i].z(), wait_time[i]);
@@ -1569,13 +1609,13 @@ int main(int argc, char **argv)
     // video_client.Init();
 
 	// 初始化 RealSense 相机
-    rs2::pipeline pipeline;
-    rs2::config cfg;
+    // rs2::pipeline pipeline;
+    // rs2::config cfg;
 
-    cfg.enable_stream(RS2_STREAM_COLOR, 640, 480, RS2_FORMAT_BGR8, 30);
-    cfg.enable_stream(RS2_STREAM_DEPTH, 640, 480, RS2_FORMAT_Z16, 30);
+    // cfg.enable_stream(RS2_STREAM_COLOR, 640, 480, RS2_FORMAT_BGR8, 30);
+    // cfg.enable_stream(RS2_STREAM_DEPTH, 640, 480, RS2_FORMAT_Z16, 30);
 
-    pipeline.start(cfg);
+    // pipeline.start(cfg);
 
 	// std::vector<uint8_t> image_sample;
     // int ret;
@@ -1583,24 +1623,23 @@ int main(int argc, char **argv)
 	// double g_cam_yaw = 0.0;
 	// std::mutex g_cam_yaw_mutex;
 
-	zmq::context_t pub_context;
-    zmq::socket_t pub_socket(pub_context, zmq::socket_type::pub);
-    pub_socket.bind("tcp://*:5557");
+	// zmq::context_t pub_context;
+    // zmq::socket_t pub_socket(pub_context, zmq::socket_type::pub);
+    // pub_socket.bind("tcp://*:5557");
+
+	while (1)
+	{
+		sleep(10); // Wait for 1 second to obtain a stable state
+	}
+	
 
 	// while (1)
-	// {	
-	// 	// double cam_yaw = custom.robot_pose.yaw;  // 直接从custom对象获取
-        
-    //     // 你也可以获取机器人的位置
-    //     // double cam_x = custom.Get.position.x();
-    //     // double cam_y = custom.robot_pose.position.y();
-	// 	// float cam_x, cam_y, cam_yaw = GetRobotHeadAndYaw();
+    // {    
+    //     float cam_x = custom.GetRobotHeadX();
+    //     float cam_y = custom.GetRobotHeadY();
+    //     float cam_yaw = custom.GetRobotYaw();
 
-	// 	float cam_x = custom.GetRobotHeadX();
-	// 	float cam_y = custom.GetRobotHeadY();
-	// 	float cam_yaw = custom.GetRobotYaw();
-
-	// 	// 获取一帧图像
+    //     // 获取一帧图像
     //     rs2::frameset frames = pipeline.wait_for_frames();
     //     rs2::video_frame color_frame = frames.get_color_frame();
     //     rs2::depth_frame depth_frame = frames.get_depth_frame();
@@ -1617,194 +1656,92 @@ int main(int argc, char **argv)
     //     std::string cls;
     //     float confidence, x_center, y_center, box_width, box_height;
 
-    //     detect_cone(image_buffer, img_width, img_height, cls, confidence, x_center, y_center, box_width, box_height);
+    //     // 添加检测结果检查
+    //     bool detection_success = detect_cone(image_buffer, img_width, img_height, cls, confidence, x_center, y_center, box_width, box_height);
 
-    //     // 计算平均深度
-    //     float avg_depth = compute_avg_depth(depth_frame, x_center, y_center, box_width, box_height);
-    //     if (avg_depth > 0)
-    //         std::cout << "Average depth in detection box: " << avg_depth << " meters" << std::endl;
-    //     else
-    //         std::cout << "No valid depth values in detection box." << std::endl;
+    //     if (detection_success && !cls.empty()) {
+    //         // 计算平均深度
+    //         float avg_depth = compute_avg_depth(depth_frame, x_center, y_center, box_width, box_height);
+    //         if (avg_depth > 0) {
+    //             std::cout << "Average depth in detection box: " << avg_depth << " meters" << std::endl;
 
-    //     // if (avg_depth < 1.0f)
-    //     //     std::cout << "Cone is very close, consider stopping or turning." << std::endl;
+    //             // 获取相机内参并投影到相机坐标
+    //             const rs2_intrinsics intr = depth_frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
+    //             std::vector<float> cam_point = pixelToCameraFrame(x_center, y_center, avg_depth, intr);
 
-    //     // 获取相机内参并投影到相机坐标
-    //     const rs2_intrinsics intr = depth_frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
-    //     std::vector<float> cam_point = pixelToCameraFrame(x_center, y_center, avg_depth, intr);
+    //             std::cout << "3D camera coordinates: [" << cam_point[0]
+    //                       << ", " << cam_point[1]
+    //                       << ", " << cam_point[2] << "] meters" << std::endl;
 
-    //     std::cout << "3D camera coordinates: [" << cam_point[0]
-    //               << ", " << cam_point[1]
-    //               << ", " << cam_point[2] << "] meters" << std::endl;
+    //             // 坐标转换
+    //             Eigen::Matrix2d R;
+    //             R << std::cos(cam_yaw), -std::sin(cam_yaw),
+    //                  std::sin(cam_yaw),  std::cos(cam_yaw);
 
-	// 	Eigen::Matrix2d R;
-	// 	R << std::cos(cam_yaw), -std::sin(cam_yaw),
-	// 		std::sin(cam_yaw),  std::cos(cam_yaw);
+    //             Eigen::Vector2d t(cam_x, cam_y);
+    //             Eigen::Vector2d pt_cam_2d(cam_point[2], -cam_point[0]);
+    //             Eigen::Vector2d pt_global = R * pt_cam_2d + t;
 
-	// 	Eigen::Vector2d t(cam_x, cam_y);
-		
-	// 	// Eigen::Vector2d pt_cam_2d(cam_point[0], cam_point[1]);  // 只转换 x, y
-	// 	Eigen::Vector2d pt_cam_2d(cam_point[2], cam_point[0]);
+    //             std::cout << "Global 2D point: [" << pt_global.x() << ", " << pt_global.y() << "]" << std::endl;
 
-	// 	Eigen::Vector2d pt_global = R * pt_cam_2d + t;
+    //             // 发送全局坐标
+    //             json coord_msg;
+    //             coord_msg["x"] = pt_global.x();
+    //             coord_msg["y"] = pt_global.y();
+    //             coord_msg["detected"] = true;
 
-	// 	std::cout << "Global 2D point: [" << pt_global.x() << ", " << pt_global.y() << "]" << std::endl;
+	// 			send_cone_detected(pub_socket, coord_msg);
+                
+    //             // std::string msg_str = coord_msg.dump();
+    //             // zmq::message_t zmq_msg(msg_str.size());
+    //             // memcpy(zmq_msg.data(), msg_str.c_str(), msg_str.size());
+    //             // pub_socket.send(zmq_msg, zmq::send_flags::dontwait);
+                
+    //             // std::cout << "Sent coordinates: " << msg_str << std::endl;
 
-	// 	// 发送全局坐标
-    //     if (!cls.empty()) {  // 只在检测到锥形物时发送
-    //         json coord_msg;
-    //         coord_msg["x"] = pt_global.x();
-    //         coord_msg["y"] = pt_global.y();
-    //         // coord_msg["timestamp"] = std::chrono::duration_cast<std::chrono::milliseconds>(
-    //         //     std::chrono::steady_clock::now().time_since_epoch()).count();
+    //             // 在图像上画框
+    //             int x = static_cast<int>(x_center - box_width / 2);
+    //             int y = static_cast<int>(y_center - box_height / 2);
+    //             int w = static_cast<int>(box_width);
+    //             int h = static_cast<int>(box_height);
+
+    //             cv::rectangle(rgb_image, cv::Rect(x, y, w, h), cv::Scalar(0, 255, 0), 2);
+    //             cv::putText(rgb_image, cls + " Depth:" + std::to_string(avg_depth) + "m",
+    //                         cv::Point(x, y - 10), cv::FONT_HERSHEY_SIMPLEX,
+    //                         0.5, cv::Scalar(0, 255, 0), 1);
+    //         } else {
+    //             std::cout << "No valid depth values in detection box." << std::endl;
+    //         }
+    //     } 
+	// 	else {
+    //         std::cout << "No cone detected or detection failed" << std::endl;
             
-    //         std::string msg_str = coord_msg.dump();
-    //         zmq::message_t zmq_msg(msg_str.size());
-    //         memcpy(zmq_msg.data(), msg_str.c_str(), msg_str.size());
-    //         pub_socket.send(zmq_msg, zmq::send_flags::dontwait);
+    //         // 发送"未检测到"消息
+
+			
+    //         // json coord_msg;
+    //         // coord_msg["detected"] = false;
             
-    //         std::cout << "Sent coordinates: " << msg_str << std::endl;
-    //     }
-
-    //     // 在图像上画框
-    //     if (!cls.empty()) {
-    //         int x = static_cast<int>(x_center - box_width / 2);
-    //         int y = static_cast<int>(y_center - box_height / 2);
-    //         int w = static_cast<int>(box_width);
-    //         int h = static_cast<int>(box_height);
-
-    //         cv::rectangle(rgb_image, cv::Rect(x, y, w, h), cv::Scalar(0, 255, 0), 2);
-    //         cv::putText(rgb_image, cls + " Depth:" + std::to_string(avg_depth) + "m",
-    //                     cv::Point(x, y - 10), cv::FONT_HERSHEY_SIMPLEX,
-    //                     0.5, cv::Scalar(0, 255, 0), 1);
-
+    //         // std::string msg_str = coord_msg.dump();
+    //         // zmq::message_t zmq_msg(msg_str.size());
+    //         // memcpy(zmq_msg.data(), msg_str.c_str(), msg_str.size());
+    //         // pub_socket.send(zmq_msg, zmq::send_flags::dontwait);
     //     }
 
     //     // 保存图像
-    //     time_t rawtime;
-    //     struct tm *timeinfo;
-    //     char filename[80];
-    //     time(&rawtime);
-    //     timeinfo = localtime(&rawtime);
-    //     strftime(filename, sizeof(filename), "%Y%m%d%H%M%S.jpg", timeinfo);
-    //     if (!cv::imwrite(filename, rgb_image)) {
-    //         std::cerr << "Error: Failed to save image." << std::endl;
-    //     } else {
-    //         std::cout << "Image saved as " << filename << std::endl;
-    //     }
-		
-	// 	sleep(10);
-	// }
-
-	while (1)
-    {    
-        float cam_x = custom.GetRobotHeadX();
-        float cam_y = custom.GetRobotHeadY();
-        float cam_yaw = custom.GetRobotYaw();
-
-        // 获取一帧图像
-        rs2::frameset frames = pipeline.wait_for_frames();
-        rs2::video_frame color_frame = frames.get_color_frame();
-        rs2::depth_frame depth_frame = frames.get_depth_frame();
-
-        // 将color_frame转换为OpenCV格式
-        cv::Mat rgb_image(cv::Size(640, 480), CV_8UC3, (void*)color_frame.get_data(), cv::Mat::AUTO_STEP);
-
-        // 编码为 JPEG 二进制数据
-        std::vector<uchar> image_buffer;
-        cv::imencode(".jpg", rgb_image, image_buffer);
-
-        // 检测安全锥
-        int img_width, img_height;
-        std::string cls;
-        float confidence, x_center, y_center, box_width, box_height;
-
-        // 添加检测结果检查
-        bool detection_success = detect_cone(image_buffer, img_width, img_height, cls, confidence, x_center, y_center, box_width, box_height);
-
-        if (detection_success && !cls.empty()) {
-            // 计算平均深度
-            float avg_depth = compute_avg_depth(depth_frame, x_center, y_center, box_width, box_height);
-            if (avg_depth > 0) {
-                std::cout << "Average depth in detection box: " << avg_depth << " meters" << std::endl;
-
-                // 获取相机内参并投影到相机坐标
-                const rs2_intrinsics intr = depth_frame.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
-                std::vector<float> cam_point = pixelToCameraFrame(x_center, y_center, avg_depth, intr);
-
-                std::cout << "3D camera coordinates: [" << cam_point[0]
-                          << ", " << cam_point[1]
-                          << ", " << cam_point[2] << "] meters" << std::endl;
-
-                // 坐标转换
-                Eigen::Matrix2d R;
-                R << std::cos(cam_yaw), -std::sin(cam_yaw),
-                     std::sin(cam_yaw),  std::cos(cam_yaw);
-
-                Eigen::Vector2d t(cam_x, cam_y);
-                Eigen::Vector2d pt_cam_2d(cam_point[2], -cam_point[0]);
-                Eigen::Vector2d pt_global = R * pt_cam_2d + t;
-
-                std::cout << "Global 2D point: [" << pt_global.x() << ", " << pt_global.y() << "]" << std::endl;
-
-                // 发送全局坐标
-                json coord_msg;
-                coord_msg["x"] = pt_global.x();
-                coord_msg["y"] = pt_global.y();
-                coord_msg["detected"] = true;
-
-				send_cone_detected(pub_socket, coord_msg);
-                
-                // std::string msg_str = coord_msg.dump();
-                // zmq::message_t zmq_msg(msg_str.size());
-                // memcpy(zmq_msg.data(), msg_str.c_str(), msg_str.size());
-                // pub_socket.send(zmq_msg, zmq::send_flags::dontwait);
-                
-                // std::cout << "Sent coordinates: " << msg_str << std::endl;
-
-                // 在图像上画框
-                int x = static_cast<int>(x_center - box_width / 2);
-                int y = static_cast<int>(y_center - box_height / 2);
-                int w = static_cast<int>(box_width);
-                int h = static_cast<int>(box_height);
-
-                cv::rectangle(rgb_image, cv::Rect(x, y, w, h), cv::Scalar(0, 255, 0), 2);
-                cv::putText(rgb_image, cls + " Depth:" + std::to_string(avg_depth) + "m",
-                            cv::Point(x, y - 10), cv::FONT_HERSHEY_SIMPLEX,
-                            0.5, cv::Scalar(0, 255, 0), 1);
-            } else {
-                std::cout << "No valid depth values in detection box." << std::endl;
-            }
-        } 
-		else {
-            std::cout << "No cone detected or detection failed" << std::endl;
-            
-            // 发送"未检测到"消息
-
-			
-            // json coord_msg;
-            // coord_msg["detected"] = false;
-            
-            // std::string msg_str = coord_msg.dump();
-            // zmq::message_t zmq_msg(msg_str.size());
-            // memcpy(zmq_msg.data(), msg_str.c_str(), msg_str.size());
-            // pub_socket.send(zmq_msg, zmq::send_flags::dontwait);
-        }
-
-        // 保存图像
-        // time_t rawtime;
-        // struct tm *timeinfo;
-        // char filename[80];
-        // time(&rawtime);
-        // timeinfo = localtime(&rawtime);
-        // strftime(filename, sizeof(filename), "%Y%m%d%H%M%S.jpg", timeinfo);
-        // if (!cv::imwrite(filename, rgb_image)) {
-        //     std::cerr << "Error: Failed to save image." << std::endl;
-        // } else {
-        //     std::cout << "Image saved as " << filename << std::endl;
-        // }
+    //     // time_t rawtime;
+    //     // struct tm *timeinfo;
+    //     // char filename[80];
+    //     // time(&rawtime);
+    //     // timeinfo = localtime(&rawtime);
+    //     // strftime(filename, sizeof(filename), "%Y%m%d%H%M%S.jpg", timeinfo);
+    //     // if (!cv::imwrite(filename, rgb_image)) {
+    //     //     std::cerr << "Error: Failed to save image." << std::endl;
+    //     // } else {
+    //     //     std::cout << "Image saved as " << filename << std::endl;
+    //     // }
         
-        sleep(0.1);
-    }
+    //     // sleep(0.1);
+    // }
 	return 0;
 }
